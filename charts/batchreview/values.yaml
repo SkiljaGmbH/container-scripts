@@ -1,0 +1,251 @@
+# Default values for batchreview (standalone subchart).
+# This chart expects a parent (umbrella) chart to inject a `global:` block, e.g.:
+#   global:
+#     auth: { enabled, serverUrl, trustCertificate, adminClientId, adminClientSecret, existingAdminSecret }
+# Batch Review is a static web frontend (nginx). It has no database of its own; it talks to the
+# Vinna runtime config service (see servicesConfig) and the Auth Server from the user's browser.
+# `global.auth` is only used to auto-register the OAuth client (auth.autoCreateAuthClients).
+# If deployed standalone (without a parent), set `global` yourself in this file.
+
+
+# --- Standalone fallback for `global` if this chart is ever run without a parent umbrella ---
+global:
+  auth:
+    enabled: true
+    serverUrl: "https://my.domain.com/auth"
+    trustCertificate: false  # self-signed cert on the Auth Server: NOT recommended for production, see docs
+    # Admin client used ONLY to auto-register OAuth clients during install/upgrade. And if autoCreateAuthClients is true
+    # Strongly recommended: use existingAdminSecret instead of adminClientSecret in production,
+    # since this client can create/modify any OAuth client on the Auth Server.
+    adminClientId: "AdminClient"
+    adminClientSecret: "ChangeME!"
+    existingAdminSecret: "" # Name of an existing secret containing key 'admin-client-secret'. Takes precedence over adminClientSecret.
+  gateway:
+    # Gateway API instead of Ingress for all components (see httpRoute). The Gateway must already exist.
+    enabled: false
+    parentRefs: []   # e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+    hostnames: []    # e.g. [my.domain.com]
+
+
+nameOverride: ""
+fullnameOverride: ""
+
+
+enabled: true
+replicaCount: 1  # stateless static frontend, can be scaled freely
+
+
+image:
+  repository: skilja/vinna_batchreview
+  pullPolicy: IfNotPresent
+  tag: "5.2.0"  # always use patch versions like "x.x.x" for production
+  pullSecrets: []
+    # - name: my-registry-secret
+
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
+
+
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+
+tolerations: []
+
+
+affinity: {}
+
+
+podAnnotations: {}
+
+
+podSecurityContext: {}
+
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080  # nginx listen port inside the container (also used in the generated default.conf)
+
+
+auth:
+  # Automatically register this client on the Auth Server during install/upgrade.
+  # Requires global.auth.adminClientId / adminClientSecret (or existingAdminSecret) to be set.
+  # Note: the auth chart's default seed file already contains a "BatchReview" client with sample
+  # redirect URIs (k8s.contoso.com). Existing clients are SKIPPED by the job, see prerequisites.md.
+  autoCreateAuthClients: true
+  # Public web-app client (Authorization Code, browser-based, no secret needed).
+  # Redirect URI = https://<ingress.hosts[0].host><env.pathBase>
+  # Used ONLY for the registration job. The frontend itself does not get this value and logs in as
+  # "BatchReview" - keep this ID, otherwise the job registers a client the app never uses (login: ID2043/ID2052).
+  webAppClientId: "BatchReview"
+
+
+env:
+  # Path the app is hosted under. Drives the nginx location blocks and the OAuth redirect URI.
+  # Single source for the app path. Gateway mode: also used as HTTPRoute PathPrefix and OAuth redirect URI.
+  # Ingress mode: the ingress path must be changed accordingly. Do not use a different external path
+  # (URL rewrite): the app builds redirects and asset URLs from this value.
+  pathBase: "/batchreview"  # must match the ingress path below
+
+
+# services.json (mounted to /usr/share/nginx/html/services.json)
+servicesConfig:
+  enabled: true
+  services:
+    # Public URL of the Vinna runtime configuration service, reached from the user's browser.
+    configurationService: "https://my.domain.com/rt"
+    apiVersion: "2.1"
+  # Full key list: Batch Review Help on the Partner Portal. Keys not listed fall back to app defaults.
+  defaultAppSettings:
+    - key: "AuthenticationMethod"
+      value: "Password"
+    - key: "ShowExternalUserOptions"
+      value: true
+    - key: "DefaultExternalUserOption"
+      value: "None"
+    - key: "CurrentUserTracking"
+      value: true
+    - key: "DoBenchmarking"
+      value: false
+    - key: "BenchmarkingVerbosity"
+      value: 0
+    - key: "DefaultFilterSelected"
+      value: ""
+    - key: "AllowFilterManagement"
+      value: true
+    - key: "AllowFilterExport"
+      value: true
+    - key: "FilterTypesToDisplay"
+      value: "All"
+    - key: "KpiDataEnabled"
+      value: false
+    - key: "KpiDataCustomValueKey"
+      value: "cv_KpiData"
+    - key: "AssignExternalUser"
+      value: false
+    - key: "UseSheetPageConcept"
+      value: false
+    - key: "AppendLeadingHiddenPagesOnSplit"
+      value: true
+    - key: "ThumbnailSize"
+      value: "medium"
+    - key: "AutoNavigateErrors"
+      value: true
+    - key: "ShowEmptyDocuments"
+      value: true
+    - key: "ShowVisibleHiddenPages"
+      value: "both"
+    - key: "ShowEmptyNonEmptyPages"
+      value: "both"
+    - key: "ShowFrontBackPages"
+      value: "both"
+    - key: "DoublePreviewConfiguration"
+      value: "None"
+    - key: "Language"
+      value: "en"
+    - key: "AutoReleaseIfValid"
+      value: true
+    - key: "AllowReleaseInvalid"
+      value: false
+    - key: "ShowDocTree"
+      value: true
+    - key: "DocTreeIgnorePages"
+      value: false
+    - key: "ShowNonDisplayedPagesInTree"
+      value: true
+    - key: "UseAssignmentDocTree"
+      value: false
+    - key: "PageMode"
+      value: true
+    - key: "FullViewer"
+      value: false
+    - key: "ui.thumbnail.pagemode.BackgroundColor"
+      value: "#3F51B5"
+    - key: "ActionsPanelAutoFocusButton"
+      value: "NextWorkItem"
+    - key: "AutoOpenUnreadComments"
+      value: false
+    - key: "ActionsPanelType"
+      value: "Panel"
+    - key: "DocTreeSelectionBackgroundColor"
+      value: "#f2f3fa"
+    - key: "AssignmentTreeSelectionBackgroundColor"
+      value: "#c0c8ff"
+    - key: "AllowAnnotations"
+      value: true
+    - key: "ShowImageViewerLoadingIndicator"
+      value: true
+    - key: "ResetViewersZoomOnClose"
+      value: true
+    - key: "PreloadInvalidMediaCount"
+      value: 1
+    - key: "UseJPEGMedia"
+      value: true
+    - key: "EnableUndo"
+      value: true
+
+
+# nginx serves index.html on "/", no dedicated health endpoint is documented.
+livenessProbe:
+  enabled: true
+  path: /
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+
+readinessProbe:
+  enabled: true
+  path: /
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+
+# Ingress mode only. Ignored in Gateway mode (global.gateway.enabled / httpRoute.enabled):
+# the HTTPRoute path is then taken from env.pathBase, the host from the gateway hostnames.
+# In Ingress mode, keep the path below in sync with env.pathBase.
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+    # --- AWS ALB Ingress Controller ---
+    # alb.ingress.kubernetes.io/target-type: ip
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:<region>:<account>:certificate/<id>
+    # alb.ingress.kubernetes.io/healthcheck-path: /
+  hosts:
+    - host: my.domain.com
+      paths:
+        - path: /batchreview*
+          pathType: ImplementationSpecific
+  tls: []
+
+
+# Gateway API (HTTPRoute) as alternative to the Ingress above. Only one of both is rendered.
+# The Gateway itself is NOT part of this chart, it must already exist (see prerequisites.md).
+# Usually configured once via global.gateway in the umbrella chart, the values here override it per chart.
+# The route path is taken from env.pathBase (PathPrefix), so it always matches the app path.
+httpRoute:
+  enabled: ""        # "" = inherit global.gateway.enabled, true/false = override for this chart
+  parentRefs: []     # empty = global.gateway.parentRefs, e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+  hostnames: []      # empty = global.gateway.hostnames. The first one is also used for the OAuth redirect URI
+  annotations: {}
+  timeouts: {}       # optional rule timeouts, e.g. { request: 600s, backendRequest: 600s }. Needs controller support
+
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi

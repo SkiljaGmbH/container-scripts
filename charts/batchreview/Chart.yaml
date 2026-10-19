@@ -1,0 +1,15 @@
+apiVersion: v2
+name: batchreview
+description: >
+  Helm chart for Skilja Vinna Batch Review (skilja/vinna_batchreview) -
+  nginx-hosted web frontend, configured via services.json
+type: application
+version: 1.2.1
+appVersion: "5.2.0"
+keywords:
+  - Vinna
+  - Skilja
+  - Validation
+  - BatchReview
+maintainers:
+  - name: Skilja Team

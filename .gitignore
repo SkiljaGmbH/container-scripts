@@ -1,0 +1,15 @@
+# Umbrella chart build artifacts
+umbrellas/*/charts/*.tgz
+
+# Local environment values (may contain hosts and secrets). Only values.yaml itself is versioned.
+umbrellas/*/values-*.yaml
+umbrellas/*/values_*.yaml
+charts/*/values-*.yaml
+charts/*/values_*.yaml
+umbrellas/*/values*prod*.yaml
+charts/*/values*prod*.yaml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

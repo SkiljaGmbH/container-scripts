@@ -1,0 +1,44 @@
+{{- if .Values.enabled }}
+{{- $pathBase := include "batchreview.pathBase" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "batchreview.fullname" . }}-config
+  labels:
+    {{- include "batchreview.labels" . | nindent 4 }}
+data:
+  {{- if .Values.servicesConfig.enabled }}
+  # Mounted as /usr/share/nginx/html/services.json (Batch Review app configuration)
+  services.json: |-
+    {
+      "Services": {
+        "ConfigurationService": {{ required "servicesConfig.services.configurationService must be set (Vinna runtime config service URL)" .Values.servicesConfig.services.configurationService | quote }},
+        "ApiVersion": {{ .Values.servicesConfig.services.apiVersion | quote }}
+      },
+      "DefaultAppSettings": {{- .Values.servicesConfig.defaultAppSettings | toJson | nindent 8 }}
+    }
+  {{- end }}
+
+  # nginx config for path-based hosting under {{ $pathBase }}
+  default.conf: |-
+    server {
+      listen {{ .Values.service.targetPort }};
+      server_name localhost;
+      root /usr/share/nginx/html;
+      # Never build absolute redirect URLs from the container's own scheme/port (8080).
+      absolute_redirect off;
+
+      location {{ $pathBase }}/ {
+        root /usr/share/nginx/html;
+        index index.html;
+        rewrite ^{{ $pathBase }}(/.*)$ $1 break;
+        try_files $uri $uri/ /index.html /usr/share/nginx/html/index.html;
+      }
+
+      location {{ $pathBase }} {
+        # Relative redirect (absolute_redirect off): the browser keeps the scheme, host and port it came
+        # with. Works behind any proxy (ALB, Gateway API, NGINX) without relying on X-Forwarded-* headers.
+        return 301 {{ $pathBase }}/$is_args$args;
+      }
+    }
+{{- end }}

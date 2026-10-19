@@ -1,0 +1,206 @@
+# Default values for validationservice (standalone subchart).
+# This chart expects a parent (umbrella) chart to inject a `global:` block, e.g.:
+#   global:
+#     database: { server, user, password, existingSecret, serverType, useIntegratedSecurity, useSSL, trustCertificate }
+#     auth:     { enabled, serverUrl, trustCertificate }
+# If deployed standalone (without a parent), set `global` yourself in this file.
+# Field Review (separate subchart `fieldreview`) requires this service.
+
+
+# --- Standalone fallback for `global` if this chart is ever run without a parent umbrella ---
+global:
+  database:
+    server: "my-db-cluster-rw.acme"
+    user: "myDBuser"
+    password: "ChangeME!"
+    existingSecret: "" # Name of an existing secret containing key 'database-password'. Takes precedence over 'password'.
+    serverType: 2      # 0=MSSQL, 1=Oracle, 2=Postgres  -> mapped to VCPV_DATABASETYPE (SQLServer, OracleDB, PostgreSQL)
+    useIntegratedSecurity: "False"
+    useSSL: false
+    trustCertificate: true   # self-signed DB certificates: set true to trust them
+  auth:
+    enabled: true
+    serverUrl: "https://my.domain.com/auth"   # -> VCPV_AUTHNENDPOINT (optional, otherwise discovered from platform.designerUrl)
+    trustCertificate: false  # not used by this service, self-signed certs are trusted via config.trustedCertificates (thumbprints)
+    # Admin client used ONLY to auto-register OAuth clients during install/upgrade. And if autoCreateAuthClients is true
+    # Strongly recommended: use existingAdminSecret instead of adminClientSecret in production,
+    # since this client can create/modify any OAuth client on the Auth Server.
+    adminClientId: "AdminClient"
+    adminClientSecret: "ChangeME!"
+    existingAdminSecret: "" # Name of an existing secret containing key 'admin-client-secret'. Takes precedence over adminClientSecret.
+  gateway:
+    # Gateway API instead of Ingress for all components (see httpRoute). The Gateway must already exist.
+    enabled: false
+    parentRefs: []   # e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+    hostnames: []    # e.g. [my.domain.com]
+
+
+nameOverride: ""
+fullnameOverride: ""
+
+
+enabled: true
+replicaCount: 1
+
+
+image:
+  repository: skilja/validationservice
+  pullPolicy: IfNotPresent
+  tag: "6.2.0"  # always use patch versions like "x.x.x" for production
+  pullSecrets: []
+    # - name: my-registry-secret   # e.g. for a private registry like myregistry.azurecr.io
+
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
+
+
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+
+tolerations: []
+
+
+affinity: {}
+
+
+podAnnotations: {}
+
+
+# The image runs as non-root user "app" (UID/GID 1654). fsGroup makes the optional
+# persistence volume (logs / data protection certificates) writable for that user.
+podSecurityContext:
+  fsGroup: 1654
+  fsGroupChangePolicy: "OnRootMismatch"
+
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080  # VCPV_SERVICEENDPOINT default: http://+:8080
+
+
+auth:
+  # Automatically register this client on the Auth Server during install/upgrade.
+  # Requires global.auth.adminClientId / adminClientSecret (or existingAdminSecret) to be set.
+  # Existing clients are SKIPPED, not updated (see prerequisites.md).
+  autoCreateAuthClients: true
+  # Public client (Authorization Code, no secret, scopes Roles + Profile). -> VCPV_CLIENTID
+  # Redirect URIs: https://<host><config.pathBase>/signin-oidc and .../signout-callback-oidc (lowercase)
+  clientId: "ValidationService"
+
+
+# Database (connection details come from global.database; only the name is service-specific)
+database:
+  name: "ValidationServiceDB"   # -> VCPV_DATABASENAME
+  type: ""                      # -> VCPV_DATABASETYPE. Leave empty to derive from global.database.serverType (SQLServer, PostgreSQL, OracleDB)
+
+
+config:
+  serviceEndpoint: ""                 # -> VCPV_SERVICEENDPOINT, only set if you need a non-default endpoint (default http://+:8080)
+  # Single source for the app path. Gateway mode: also used as HTTPRoute PathPrefix and OAuth redirect URI.
+  # Ingress mode: the ingress path must be changed accordingly. Do not use a different external path
+  # (URL rewrite): the app builds redirects and asset URLs from this value.
+  pathBase: "/validationservice"      # -> VCPV_SERVICEPATHBASE, must match the ingress path below
+  useForwardedHeaders: true           # -> VCPV_USEFORWARDEDHEADERS, required behind an SSL-offloading ingress
+  requireAuthForDesigner: true        # -> VCPV_REQUIREAUTHFORDESIGNER
+
+  log:
+    file: "_validationService.log"    # -> VCPV_LOGFILE, written to /app/Log (see persistence)
+    level: "Information"              # -> VCPV_LOGLEVEL: Verbose, Debug, Information, Warning, Error
+
+  # -> VCPV_TRUSTEDCERTIFICATES, comma-separated thumbprints for self-signed certs
+  trustedCertificates: ""
+  # Example: "7e37487bb806a88254a393a1952167b13c86c90f,another-thumbprint"
+
+  # Optional custom data protection certificate. Requires persistence.enabled (certificates volume)
+  # or another way to get the .pfx into the container. Empty = built-in default certificate.
+  dataProtection:
+    certificatePath: ""               # -> VCPV_DATAPROTECTIONCERTIFICATEPATH, e.g. /app/certificates/default-cert.pfx
+    certificatePassword: ""           # -> VCPV_DATAPROTECTIONCERTIFICATEPASSWORD, stored in the chart's Secret
+    existingSecret: ""                # Name of an existing secret containing key 'dataprotection-certificate-password'. Takes precedence.
+
+
+# Vinna platform integration
+platform:
+  designerUrl: "https://my.domain.com/processeditor"  # -> VCPV_PLATFORMDESIGNERURL, public URL of the Vinna process editor
+  designerServiceUrl: ""                              # -> VCPV_DESIGNERSERVICEENDPOINT, optional (e.g. https://my.domain.com/dt/), otherwise discovered
+
+
+# Probes. Paths are relative to config.pathBase, e.g. /validationservice/health/live
+livenessProbe:
+  enabled: true
+  path: /health/live
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  successThreshold: 1
+  failureThreshold: 3
+
+
+readinessProbe:
+  enabled: true
+  path: /health/ready
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+
+# Persistent volume (optional) for logs and data protection certificates.
+# Without it, logs are only available via the container console output.
+persistence:
+  enabled: false
+  storageClass: ""     # set your provider's StorageClass, e.g. "auto-ebs-sc" on AWS
+  accessMode: ReadWriteOnce
+  size: 500Mi
+  annotations: {}
+  logs:
+    mountPath: /app/Log
+  certificates:
+    mountPath: /app/certificates
+
+
+# Ingress mode only. Ignored in Gateway mode (global.gateway.enabled / httpRoute.enabled):
+# the HTTPRoute path is then taken from config.pathBase, the host from the gateway hostnames.
+# In Ingress mode, keep the path below in sync with config.pathBase.
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+    # --- AWS ALB Ingress Controller ---
+    # alb.ingress.kubernetes.io/target-type: ip
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:<region>:<account>:certificate/<id>
+    # alb.ingress.kubernetes.io/healthcheck-path: /validationservice/health/ready
+  hosts:
+    - host: my.domain.com
+      paths:
+        - path: /validationservice*
+          pathType: ImplementationSpecific
+  tls: []
+
+
+# Gateway API (HTTPRoute) as alternative to the Ingress above. Only one of both is rendered.
+# The Gateway itself is NOT part of this chart, it must already exist (see prerequisites.md).
+# Usually configured once via global.gateway in the umbrella chart, the values here override it per chart.
+# The route path is taken from config.pathBase (PathPrefix), so it always matches the app path.
+httpRoute:
+  enabled: ""        # "" = inherit global.gateway.enabled, true/false = override for this chart
+  parentRefs: []     # empty = global.gateway.parentRefs, e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+  hostnames: []      # empty = global.gateway.hostnames. The first one is also used for the OAuth redirect URI
+  annotations: {}
+  timeouts: {}       # optional rule timeouts, e.g. { request: 600s, backendRequest: 600s }. Needs controller support
+
+
+resources:
+  limits:
+    cpu: 1
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
