@@ -1,0 +1,65 @@
+{{- if and .Values.enabled .Values.auth.autoCreateAuthClients }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "validationservice.fullname" . }}-register-auth-clients
+  labels:
+    {{- include "validationservice.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        # Not the full selectorLabels: they already contain a component label, and the job pod
+        # must not match the Service selector of the app.
+        app.kubernetes.io/name: {{ include "validationservice.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: register-auth-clients
+    spec:
+      restartPolicy: Never
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: register-auth-clients
+          image: alpine:3.20
+          command: ["sh", "/scripts/register-auth-clients.sh"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+          env:
+            # --- Admin client (shared, from global block) ---
+            - name: AUTH_SERVER_URL
+              value: {{ .Values.global.auth.serverUrl | quote }}
+            - name: ADMIN_CLIENT_ID
+              value: {{ .Values.global.auth.adminClientId | quote }}
+            {{- if .Values.global.auth.existingAdminSecret }}
+            - name: ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.auth.existingAdminSecret }}
+                  key: admin-client-secret
+            {{- else }}
+            - name: ADMIN_CLIENT_SECRET
+              value: {{ required "global.auth.adminClientSecret must be set (or use global.auth.existingAdminSecret)" .Values.global.auth.adminClientSecret | quote }}
+            {{- end }}
+
+            # --- validationservice client to register (this chart only, public client, no secret) ---
+            - name: AUTOCREATE_VALIDATIONSERVICE
+              value: "true"
+            - name: VALIDATIONSERVICE_CLIENT_ID
+              value: {{ .Values.auth.clientId | quote }}
+            # Base URL of the app; the script appends /signin-oidc and /signout-callback-oidc.
+            # Lowercased, OIDC redirect URIs are case sensitive and the docs require lowercase.
+            - name: VALIDATIONSERVICE_BASE_URI
+              value: {{ printf "https://%s%s" (include "validationservice.publicHost" .) (.Values.config.pathBase | trimSuffix "/") | lower | quote }}
+      volumes:
+        - name: script
+          configMap:
+            name: {{ include "validationservice.fullname" . }}-register-auth-clients
+{{- end }}

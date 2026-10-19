@@ -1,0 +1,14 @@
+apiVersion: v2
+name: validationservice
+description: >
+  Helm chart for the Skilja Validation Service (skilja/validationservice) -
+  backend service for Field Review / validation configurations on the Vinna platform
+type: application
+version: 1.3.0
+appVersion: "6.2.0"
+keywords:
+  - Vinna
+  - Skilja
+  - Validation
+maintainers:
+  - name: Skilja Team

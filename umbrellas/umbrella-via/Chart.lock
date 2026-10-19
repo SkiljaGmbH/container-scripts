@@ -1,0 +1,15 @@
+dependencies:
+- name: batchreview
+  repository: file://../../charts/batchreview
+  version: 1.2.1
+- name: fieldreview
+  repository: file://../../charts/fieldreview
+  version: 1.2.1
+- name: validationservice
+  repository: file://../../charts/validationservice
+  version: 1.3.0
+- name: lookupservice
+  repository: file://../../charts/lookupservice
+  version: 1.3.0
+digest: sha256:062e498f0d9fb94e657ea4f98a9c477bfc47bff37e8d06b1e4400e39575dd3df
+generated: "2026-10-16T13:14:06.586466537Z"

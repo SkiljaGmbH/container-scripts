@@ -1,0 +1,32 @@
+apiVersion: v2
+name: via
+description: >
+  Umbrella chart for VIA (Vinna validation add-ons): Batch Review, Field Review,
+  Validation Service and Lookup Service. Requires an existing Vinna platform
+  (runtime / process editor) and Auth Server.
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - Vinna
+  - Skilja
+  - Validation
+maintainers:
+  - name: Skilja Team
+dependencies:
+  - name: batchreview
+    version: "1.2.1"
+    repository: "file://../../charts/batchreview"
+    condition: batchreview.enabled
+  - name: fieldreview
+    version: "1.2.1"
+    repository: "file://../../charts/fieldreview"
+    condition: fieldreview.enabled
+  - name: validationservice
+    version: "1.3.0"
+    repository: "file://../../charts/validationservice"
+    condition: validationservice.enabled
+  - name: lookupservice
+    version: "1.3.0"
+    repository: "file://../../charts/lookupservice"
+    condition: lookupservice.enabled

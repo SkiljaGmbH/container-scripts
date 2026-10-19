@@ -1,6 +1,9 @@
 # ContainerWorld
 
-Helm charts and umbrella charts for running **Laera**, **Vinna** and the **Auth Server** on Kubernetes.
+Helm charts and umbrella charts for running Skilja products on Kubernetes.
+
+> **Currently published:** VIA (Batch Review, Field Review, Validation Service, Lookup Service).
+> Laera, Vinna and the Auth Server follow.
 
 ## Structure
 
@@ -14,14 +17,10 @@ ContainerWorld/
 
 | Chart | Description |
 |---|---|
-| `aiserver` | AI Server |
-| `clsdesigner` | Classification Designer |
-| `clsmonitor` | Classification Monitor |
-| `iedesigner` | Extraction Designer |
-| `iemonitor` | Extraction Monitor |
-| `sitemanagement` | Site Management Tool |
-| `<authserver>` | Auth Server |
-| `<vinna-...>` | Vinna components |
+| `batchreview` | Batch Review web frontend (nginx) |
+| `fieldreview` | Field Review web frontend (nginx), requires `validationservice` |
+| `validationservice` | Validation Service |
+| `lookupservice` | Lookup Service |
 
 Each chart has its own `prerequisites.md` describing required secrets, dependencies and installation notes.
 
@@ -29,14 +28,13 @@ Each chart has its own `prerequisites.md` describing required secrets, dependenc
 
 | Umbrella | Contents |
 |---|---|
-| `umbrella-laera` | AI Server, designers, monitors and Site Management Tool |
-| `<umbrella-vinna>` | Vinna stack |
-| `<umbrella-auth>` | Auth Server |
+| `umbrella-via` | Batch Review, Field Review, Validation Service and Lookup Service (requires an existing Vinna platform and Auth Server) |
 
 ## Prerequisites
 
 - Kubernetes cluster and `kubectl`
-- [Helm](https://helm.sh/) 3.x
+- [Helm](https://helm.sh/) 3.x or 4.x
+- Ingress controller **or** a Gateway API implementation with an existing Gateway (see `umbrellas/README.md`)
 - Access to the container registry
 - Required secrets (see the `prerequisites.md` of the respective chart)
 
@@ -46,14 +44,14 @@ Each chart has its own `prerequisites.md` describing required secrets, dependenc
 2. Resolve dependencies:
 
    ```bash
-   cd umbrellas/umbrella-laera
+   cd umbrellas/umbrella-via
    helm dependency update
    ```
 
 3. Install or upgrade:
 
    ```bash
-   helm upgrade --install laera . -n <namespace> --create-namespace -f values.yaml -f <values-prod.yaml>
+   helm upgrade --install via . -n <namespace> -f values.yaml -f <values-prod.yaml> --wait --timeout 10m
    ```
 
 Individual components can be toggled in the umbrella via `<chart-name>.enabled`.
@@ -69,3 +67,9 @@ Individual components can be toggled in the umbrella via `<chart-name>.enabled`.
 
 - Secrets never belong in the repo. Values files only reference secret names and keys.
 - Branch naming: `users/<Name>/<topic>`
+
+## License
+
+The Helm charts, scripts and documentation in this repository are licensed under the
+[MIT License](LICENSE). The Skilja container images referenced by these charts are proprietary
+software and are subject to Skilja's own license terms.

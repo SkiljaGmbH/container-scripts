@@ -1,0 +1,152 @@
+# Umbrella chart for VIA.
+# Settings under "global" are injected into every subchart and override the
+# standalone fallbacks in the subcharts' own values.yaml.
+
+global:
+  database:
+    serverType: 2                  # 0=MSSQL, 1=Oracle, 2=PostgreSQL (Lookup Service: MSSQL / PostgreSQL only)
+    server: "my-db-cluster-rw.acme"
+    user: "myDBUser"
+    password: ""                   # used only if existingSecret is empty
+    existingSecret: ""             # existing secret with key 'database-password'
+    useIntegratedSecurity: "False"
+    useSSL: false
+    trustCertificate: true         # self-signed DB certificates
+  auth:
+    enabled: true
+    serverUrl: "https://my.domain.com/auth"
+    trustCertificate: false        # self-signed cert on the Auth Server, not recommended for production
+    # Admin client, used only to auto-register OAuth clients (autoCreateAuthClients: true).
+    adminClientId: ""
+    adminClientSecret: ""
+    existingAdminSecret: ""        # existing secret with key 'admin-client-secret'
+  gateway:
+    # Gateway API (HTTPRoute) instead of Ingress for ALL components. The Gateway must already exist,
+    # it is not created by this chart. Per component, <component>.httpRoute.* overrides these values.
+    # Controller specific settings (upload size, timeouts, sticky sessions) see ../README.md.
+    # Route path per component = its path base, NOT ingress.hosts[].paths:
+    #   validationservice/lookupservice.config.pathBase, batchreview/fieldreview.env.pathBase
+    enabled: false
+    parentRefs: []                 # e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+    hostnames: []                  # e.g. [my.domain.com], the first one is used for the OAuth redirect URIs
+
+# All four modules need the Vinna runtime config service. Use the same URL everywhere:
+#   batchreview.servicesConfig.services.configurationService
+#   fieldreview.servicesConfig.services.configurationService
+#   lookupservice.platform.configServiceUrl
+
+# ---------------------------------------------------------------
+# 1. Batch Review
+# ---------------------------------------------------------------
+
+batchreview:
+  enabled: true
+  image:
+    tag: "5.2.0"
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from batchreview.env.pathBase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /batchreview*
+            pathType: ImplementationSpecific
+  env:
+    pathBase: "/batchreview"                 # must match the ingress path above
+  auth:
+    autoCreateAuthClients: true
+    webAppClientId: "BatchReview"            # keep this ID, the frontend logs in as BatchReview (only used for registration)
+  servicesConfig:
+    services:
+      configurationService: "https://my.domain.com/rt"   # Vinna runtime config service (public URL)
+      apiVersion: "2.1"
+    # defaultAppSettings: see subchart values.yaml, override the whole list here if needed
+
+# ---------------------------------------------------------------
+# 2. Field Review
+# ---------------------------------------------------------------
+
+fieldreview:
+  enabled: true                              # requires validationservice
+  image:
+    tag: "4.2.0"
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from fieldreview.env.pathBase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /fieldreview*
+            pathType: ImplementationSpecific
+  env:
+    pathBase: "/fieldreview"                 # must match the ingress path above
+  auth:
+    autoCreateAuthClients: true
+    webAppClientId: "FieldReview"            # keep this ID, the frontend logs in as FieldReview (only used for registration)
+  servicesConfig:
+    services:
+      configurationService: "https://my.domain.com/rt"   # Vinna runtime config service (public URL)
+      apiVersion: "2.1"
+    # defaultAppSettings: see subchart values.yaml, override the whole list here if needed
+
+# ---------------------------------------------------------------
+# 3. Validation Service
+# ---------------------------------------------------------------
+
+validationservice:
+  enabled: true
+  image:
+    tag: "6.2.0"
+    # repository: myregistry.azurecr.io/skilja/validationservice   # private registry, then also set pullSecrets
+    # pullSecrets:
+    #   - name: my-acr-secret
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from validationservice.config.pathBase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /validationservice*
+            pathType: ImplementationSpecific
+  config:
+    pathBase: "/validationservice"           # must match the ingress path above
+    requireAuthForDesigner: true
+    trustedCertificates: ""                  # thumbprints for self-signed certs (Auth Server, Vinna)
+  database:
+    name: ValidationServiceDB
+  auth:
+    autoCreateAuthClients: true
+    clientId: "ValidationService"            # passed to the app (VCPV_CLIENTID), a custom ID per installation is possible
+  platform:
+    designerUrl: "https://my.domain.com/processeditor"   # public URL of the Vinna process editor
+    designerServiceUrl: ""                   # optional, e.g. https://my.domain.com/dt/
+  persistence:
+    enabled: false                           # logs / data protection certificates
+    storageClass: ""
+
+# ---------------------------------------------------------------
+# 4. Lookup Service
+# ---------------------------------------------------------------
+
+lookupservice:
+  enabled: true
+  image:
+    tag: "6.2"
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from lookupservice.config.pathBase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /lookupservice*
+            pathType: ImplementationSpecific
+  config:
+    pathBase: "/lookupservice"               # must match the ingress path above
+    trustedCertificates: ""                  # thumbprints for self-signed certs (Auth Server, Vinna)
+  database:
+    name: LookupServiceDB
+    passwordInConnectionStringAddendum: true # also pass the password via LS_ConnectionStringAddendum, LS_DbPassword alone is not reliably picked up
+  auth:
+    autoCreateAuthClients: true
+    clientId: "LookupService"                # public client, redirect URI = https://<host><pathBase>/signin-oidc
+  platform:
+    configServiceUrl: "https://my.domain.com/rt"         # Vinna runtime config service, must be resolvable inside the pod
+  persistence:
+    enabled: false                           # programData (SQLite settings) / logs / certificates
+    storageClass: ""

@@ -1,0 +1,13 @@
+VIA {{ .Chart.Version }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Enabled modules:
+{{- range $name := list "batchreview" "fieldreview" "validationservice" "lookupservice" }}
+{{- $v := index $.Values $name }}
+  - {{ $name }}: {{ if $v.enabled }}enabled{{ else }}disabled{{ end }}
+{{- end }}
+{{- if and .Values.fieldreview.enabled (not .Values.validationservice.enabled) }}
+
+WARNING: fieldreview is enabled but validationservice is not. Field Review requires the Validation Service.
+{{- end }}
+
+See each subchart's prerequisites.md for secrets, OAuth clients and the Vinna runtime URLs.

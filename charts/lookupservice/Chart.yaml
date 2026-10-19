@@ -1,0 +1,15 @@
+apiVersion: v2
+name: lookupservice
+description: >
+  Helm chart for the Skilja Lookup Service (skilja/lookupservice) -
+  lookup / master data service for validation on the Vinna platform
+type: application
+version: 1.3.0
+appVersion: "6.2"
+keywords:
+  - Vinna
+  - Skilja
+  - Validation
+  - Lookups
+maintainers:
+  - name: Skilja Team

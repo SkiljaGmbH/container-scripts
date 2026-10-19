@@ -1,0 +1,179 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "validationservice.fullname" . }}
+  labels:
+    {{- include "validationservice.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "validationservice.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "validationservice.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.serviceAccount.create .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name | default (include "validationservice.fullname" .) }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        # Validation Service container
+        - name: validationservice
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The image runs as non-root user "app", UID/GID 1654
+          securityContext:
+            runAsUser: 1654
+            runAsGroup: 1654
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            # --- Core service settings ---
+            {{- if .Values.config.serviceEndpoint }}
+            - name: VCPV_SERVICEENDPOINT
+              value: {{ .Values.config.serviceEndpoint | quote }}
+            {{- end }}
+            - name: VCPV_SERVICEPATHBASE
+              value: {{ .Values.config.pathBase | quote }}
+            - name: VCPV_USEFORWARDEDHEADERS
+              value: {{ .Values.config.useForwardedHeaders | quote }}
+
+            # --- Database settings (connection from global block, only the name is service-specific) ---
+            - name: VCPV_DATABASETYPE
+              value: {{ include "validationservice.databaseType" . | quote }}
+            - name: VCPV_DATABASESERVER
+              value: {{ .Values.global.database.server | quote }}
+            - name: VCPV_DATABASENAME
+              value: {{ .Values.database.name | quote }}
+            - name: VCPV_USEINTEGRATEDSECURITY
+              value: {{ .Values.global.database.useIntegratedSecurity | quote }}
+            - name: VCPV_USESSL
+              value: {{ .Values.global.database.useSSL | quote }}
+            - name: VCPV_TRUSTSERVERCERTIFICATE
+              value: {{ .Values.global.database.trustCertificate | quote }}
+            - name: VCPV_SQLUSER
+              value: {{ .Values.global.database.user | quote }}
+            - name: VCPV_SQLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.global.database.existingSecret }}
+                  name: {{ .Values.global.database.existingSecret }}
+                  {{- else }}
+                  name: {{ include "validationservice.fullname" . }}-secrets
+                  {{- end }}
+                  key: database-password
+
+            # --- Auth settings (server URL from global block) ---
+            - name: VCPV_REQUIREAUTHFORDESIGNER
+              value: {{ .Values.config.requireAuthForDesigner | quote }}
+            {{- if .Values.global.auth.serverUrl }}
+            - name: VCPV_AUTHNENDPOINT
+              value: {{ .Values.global.auth.serverUrl | quote }}
+            {{- end }}
+            {{- if .Values.auth.clientId }}
+            - name: VCPV_CLIENTID
+              value: {{ .Values.auth.clientId | quote }}
+            {{- end }}
+
+            # --- Vinna platform integration ---
+            - name: VCPV_PLATFORMDESIGNERURL
+              value: {{ required "platform.designerUrl must be set (public URL of the Vinna process editor)" .Values.platform.designerUrl | quote }}
+            {{- if .Values.platform.designerServiceUrl }}
+            - name: VCPV_DESIGNERSERVICEENDPOINT
+              value: {{ .Values.platform.designerServiceUrl | quote }}
+            {{- end }}
+
+            # --- Logging ---
+            - name: VCPV_LOGFILE
+              value: {{ .Values.config.log.file | quote }}
+            - name: VCPV_LOGLEVEL
+              value: {{ .Values.config.log.level | quote }}
+
+            # --- Optional: trusted certificates (thumbprints, for self-signed certs) ---
+            {{- if .Values.config.trustedCertificates }}
+            - name: VCPV_TRUSTEDCERTIFICATES
+              value: {{ .Values.config.trustedCertificates | quote }}
+            {{- end }}
+
+            # --- Optional: data protection certificate (requires persistence.enabled) ---
+            {{- if .Values.config.dataProtection.certificatePath }}
+            - name: VCPV_DATAPROTECTIONCERTIFICATEPATH
+              value: {{ .Values.config.dataProtection.certificatePath | quote }}
+            {{- end }}
+            {{- if or .Values.config.dataProtection.certificatePassword .Values.config.dataProtection.existingSecret }}
+            - name: VCPV_DATAPROTECTIONCERTIFICATEPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.config.dataProtection.existingSecret }}
+                  name: {{ .Values.config.dataProtection.existingSecret }}
+                  {{- else }}
+                  name: {{ include "validationservice.fullname" . }}-secrets
+                  {{- end }}
+                  key: dataprotection-certificate-password
+            {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ printf "%s%s" (.Values.config.pathBase | trimSuffix "/") .Values.livenessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ printf "%s%s" (.Values.config.pathBase | trimSuffix "/") .Values.readinessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.logs.mountPath }}
+              subPath: logs
+            - name: data
+              mountPath: {{ .Values.persistence.certificates.mountPath }}
+              subPath: certificates
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "validationservice.fullname" . }}-data
+      {{- end }}
+{{- end }}

@@ -1,0 +1,185 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lookupservice.fullname" . }}
+  labels:
+    {{- include "lookupservice.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "lookupservice.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lookupservice.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.serviceAccount.create .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name | default (include "lookupservice.fullname" .) }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        # Lookup Service container
+        - name: lookupservice
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Since v6.2 the image runs as non-root user "app", UID/GID 1654
+          securityContext:
+            runAsUser: 1654
+            runAsGroup: 1654
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            # --- Core service settings ---
+            {{- if .Values.config.serviceEndpoint }}
+            - name: LS_ServiceEndpoint
+              value: {{ .Values.config.serviceEndpoint | quote }}
+            {{- end }}
+            - name: LS_ServicePathBase
+              value: {{ .Values.config.pathBase | quote }}
+            - name: LS_UseForwardedHeaders
+              value: {{ .Values.config.useForwardedHeaders | quote }}
+            - name: LS_ProgramDataPath
+              value: {{ .Values.config.programDataPath | quote }}
+
+            # --- Database settings (connection from global block, only the name is service-specific) ---
+            - name: LS_DatabaseProvider
+              value: {{ include "lookupservice.databaseType" . | quote }}
+            - name: LS_DbServerName
+              value: {{ .Values.global.database.server | quote }}
+            - name: LS_DatabaseName
+              value: {{ .Values.database.name | quote }}
+            - name: LS_UseIntegratedSecurity
+              value: {{ .Values.global.database.useIntegratedSecurity | quote }}
+            - name: LS_DbUseSSL
+              value: {{ .Values.global.database.useSSL | quote }}
+            - name: LS_DbTrustServerCertificate
+              value: {{ .Values.global.database.trustCertificate | quote }}
+            - name: LS_DbUserName
+              value: {{ .Values.global.database.user | quote }}
+            - name: LS_DbPassword
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.global.database.existingSecret }}
+                  name: {{ .Values.global.database.existingSecret }}
+                  {{- else }}
+                  name: {{ include "lookupservice.fullname" . }}-secrets
+                  {{- end }}
+                  key: database-password
+            {{- $addendum := list }}
+            {{- if .Values.database.passwordInConnectionStringAddendum }}
+            {{- $addendum = append $addendum "Password=$(LS_DbPassword)" }}
+            {{- end }}
+            {{- if .Values.database.connectionStringAddendum }}
+            {{- $addendum = append $addendum (.Values.database.connectionStringAddendum | trimPrefix ";") }}
+            {{- end }}
+            {{- if $addendum }}
+            # Must stay AFTER LS_DbPassword: Kubernetes only expands $(VAR) references to env vars defined earlier
+            # in this list. The password itself never appears in the manifest, only the reference.
+            - name: LS_ConnectionStringAddendum
+              value: {{ join ";" $addendum | quote }}
+            {{- end }}
+
+            # --- Vinna platform integration / auth ---
+            - name: LS_ConfigurationService
+              value: {{ required "platform.configServiceUrl must be set (Vinna runtime configuration service URL)" .Values.platform.configServiceUrl | quote }}
+            {{- if .Values.auth.clientId }}
+            - name: LS_ClientId
+              value: {{ .Values.auth.clientId | quote }}
+            {{- end }}
+
+            # --- Logging ---
+            - name: LS_logfile
+              value: {{ .Values.config.log.file | quote }}
+            - name: LS_loglevel
+              value: {{ .Values.config.log.level | quote }}
+
+            # --- Optional: trusted certificates (thumbprints, for self-signed certs) ---
+            {{- if .Values.config.trustedCertificates }}
+            - name: LS_TrustedCertificates
+              value: {{ .Values.config.trustedCertificates | quote }}
+            {{- end }}
+
+            # --- Optional: data protection certificate (requires persistence.enabled) ---
+            {{- if .Values.config.dataProtection.certificatePath }}
+            - name: LS_DataProtectionCertificatePath
+              value: {{ .Values.config.dataProtection.certificatePath | quote }}
+            {{- end }}
+            {{- if or .Values.config.dataProtection.certificatePassword .Values.config.dataProtection.existingSecret }}
+            - name: LS_DataProtectionCertificatePassword
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.config.dataProtection.existingSecret }}
+                  name: {{ .Values.config.dataProtection.existingSecret }}
+                  {{- else }}
+                  name: {{ include "lookupservice.fullname" . }}-secrets
+                  {{- end }}
+                  key: dataprotection-certificate-password
+            {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ printf "%s%s" (.Values.config.pathBase | trimSuffix "/") .Values.livenessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ printf "%s%s" (.Values.config.pathBase | trimSuffix "/") .Values.readinessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.config.programDataPath }}
+              subPath: programdata
+            - name: data
+              mountPath: {{ .Values.persistence.logs.mountPath }}
+              subPath: logs
+            - name: data
+              mountPath: {{ .Values.persistence.certificates.mountPath }}
+              subPath: certificates
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "lookupservice.fullname" . }}-data
+      {{- end }}
+{{- end }}
