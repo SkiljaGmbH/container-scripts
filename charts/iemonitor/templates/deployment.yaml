@@ -1,0 +1,180 @@
+{{- if .Values.enabled }}
+{{- $useGpu := .Values.gpu.enabled }}
+{{- $baseTag := .Values.image.tag | default .Chart.AppVersion }}
+{{- $imageTag := $baseTag }}
+{{- if $useGpu }}
+{{- $imageTag = printf "%s-llm-cuda" $baseTag }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "extraction-monitor.fullname" . }}
+  labels:
+    {{- include "extraction-monitor.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "extraction-monitor.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "extraction-monitor.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.serviceAccount.create .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name | default (include "extraction-monitor.fullname" .) }}
+      {{- end }}
+      nodeSelector:
+        {{- if $useGpu }}
+        {{- $merged := merge (deepCopy .Values.gpu.nodeSelector) .Values.nodeSelector }}
+        {{- toYaml $merged | nindent 8 }}
+        {{- else }}
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+        {{- end }}
+      {{- if $useGpu }}
+      tolerations:
+        {{- toYaml .Values.gpu.tolerations | nindent 8 }}
+      {{- else if .Values.tolerations }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      containers:
+        # Extraction Monitor (Online Learning) container
+        - name: extraction-monitor
+          image: "{{ .Values.image.repository }}:{{ $imageTag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Service user for .NET containers since v8.0 is UID/GID 1654, non-root user "app"
+          securityContext:
+            runAsUser: 1654
+            runAsGroup: 1654
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            # Generic ASP.NET Core Kestrel transport limit.
+            - name: ASPNETCORE_Kestrel__Limits__MaxRequestBodySize
+              value: {{ .Values.env.maxRequestBodySize | quote }}
+            - name: ASPNETCORE_Kestrel__Limits__RequestHeadersTimeout
+              value: "00:10:00" # 10 min
+            - name: ASPNETCORE_Kestrel__Limits__KeepAliveTimeout
+              value: "00:10:00" # 10 min
+
+            # -- Core service --
+            - name: OLEXTR_SERVICEENDPOINT
+              value: {{ .Values.env.serviceEndpoint | quote }}
+            - name: OLEXTR_PATHBASE
+              value: {{ .Values.env.pathBase | quote }}
+            - name: OLEXTR_SELFHOSTWEBSITE
+              value: {{ .Values.env.selfHostWebsite | quote }}
+            - name: OLEXTR_MAXTRAINDOCUMENTSPERMETHOD
+              value: {{ .Values.env.maxTrainDocumentsPerMethod | quote }}
+
+            # -- OL (Online Learning) database --
+            - name: OLEXTR_OLDATABASESERVERTYPE
+              value: {{ .Values.global.database.serverType | quote }}
+            - name: OLEXTR_OLDATABASESERVER
+              value: {{ .Values.global.database.server | quote }}
+            - name: OLEXTR_OLDATABASENAME
+              value: {{ .Values.env.olDatabaseName | quote }}
+            - name: OLEXTR_OLUSEINTEGRATEDSECURITY
+              value: {{ .Values.env.olUseIntegratedSecurity | quote }}
+            - name: OLEXTR_OLUSESSL
+              value: {{ .Values.env.olUseSSL | quote }}
+            - name: OLEXTR_OLTRUSTCERTIFICATE
+              value: {{ .Values.env.olTrustCertificate | quote }}
+            - name: OLEXTR_OLSQLUSER
+              value: {{ .Values.global.database.user | quote }}
+            - name: OLEXTR_OLSQLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.global.database.existingSecret }}
+                  name: {{ .Values.global.database.existingSecret }}
+                  {{- else }}
+                  name: {{ include "extraction-monitor.fullname" . }}-secrets
+                  {{- end }}
+                  key: database-password
+
+            - name: OLEXTR_AUTOCREATEDATABASE
+              value: {{ .Values.env.autoCreateDatabase | quote }}
+
+            # -- Project database (Extraction Web Designer) --
+            - name: OLEXTR_PROJDATABASESERVERTYPE
+              value: {{ .Values.global.database.serverType | quote }}
+            - name: OLEXTR_PROJDATABASESERVER
+              value: {{ .Values.global.database.server | quote }}
+            - name: OLEXTR_PROJDATABASENAME
+              value: {{ .Values.env.projDatabaseName | quote }}
+            - name: OLEXTR_PROJUSEINTEGRATEDSECURITY
+              value: {{ .Values.env.projUseIntegratedSecurity | quote }}
+            - name: OLEXTR_PROJUSESSL
+              value: {{ .Values.env.projUseSSL | quote }}
+            - name: OLEXTR_PROJTRUSTCERTIFICATE
+              value: {{ .Values.env.projTrustCertificate | quote }}
+            - name: OLEXTR_PROJSQLUSER
+              value: {{ .Values.global.database.user | quote }}
+            - name: OLEXTR_PROJSQLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.global.database.existingSecret }}
+                  name: {{ .Values.global.database.existingSecret }}
+                  {{- else }}
+                  name: {{ include "extraction-monitor.fullname" . }}-secrets
+                  {{- end }}
+                  key: database-password
+
+            # -- Auth / OAuth client --
+            - name: OLEXTR_HASAUTHENABLED
+              value: {{ .Values.global.auth.enabled | quote }}
+            - name: OLEXTR_AUTHSERVERURL
+              value: {{ .Values.global.auth.serverUrl | quote }}
+            - name: OLEXTR_WEBAPPCLIENTID
+              value: {{ .Values.auth.webAppClientId | quote }}
+            - name: OLEXTR_SERVERCLIENTID
+              value: {{ .Values.auth.serverClientId | quote }}
+            - name: OLEXTR_SERVERCLIENTSECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.auth.existingServerClientSecret }}
+                  name: {{ .Values.auth.existingServerClientSecret }}
+                  {{- else }}
+                  name: {{ include "extraction-monitor.fullname" . }}-secrets
+                  {{- end }}
+                  key: extraction-client-secret
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- $res := deepCopy .Values.resources }}
+            {{- if $useGpu }}
+            {{- $_ := set $res.limits "nvidia.com/gpu" .Values.gpu.limit }}
+            {{- end }}
+            {{- toYaml $res | nindent 12 }}
+{{- end }}

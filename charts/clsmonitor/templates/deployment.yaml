@@ -1,0 +1,179 @@
+{{- if .Values.enabled }}
+{{- $useGpu := .Values.gpu.enabled }}
+{{- $baseTag := .Values.image.tag | default .Chart.AppVersion }}
+{{- $imageTag := $baseTag }}
+{{- if $useGpu }}
+{{- $imageTag = printf "%s-llm-cuda" $baseTag }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "classification-monitor.fullname" . }}
+  labels:
+    {{- include "classification-monitor.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "classification-monitor.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "classification-monitor.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.serviceAccount.create .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name | default (include "classification-monitor.fullname" .) }}
+      {{- end }}
+      nodeSelector:
+        {{- if $useGpu }}
+        {{- $merged := merge (deepCopy .Values.gpu.nodeSelector) .Values.nodeSelector }}
+        {{- toYaml $merged | nindent 8 }}
+        {{- else }}
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+        {{- end }}
+      {{- if $useGpu }}
+      tolerations:
+        {{- toYaml .Values.gpu.tolerations | nindent 8 }}
+      {{- else if .Values.tolerations }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      containers:
+        # Classification Monitor (Online Learning) container
+        - name: classification-monitor
+          image: "{{ .Values.image.repository }}:{{ $imageTag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Service user for .NET containers since v8.0 is UID/GID 1654, non-root user "app"
+          securityContext:
+            runAsUser: 1654
+            runAsGroup: 1654
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            # Generic ASP.NET Core Kestrel transport limit - NOT an OLCLS_* documented
+            # setting, this is framework-level config independent of the app's own docs.
+            - name: ASPNETCORE_Kestrel__Limits__MaxRequestBodySize
+              value: {{ .Values.env.maxRequestBodySize | quote }}
+            - name: ASPNETCORE_Kestrel__Limits__RequestHeadersTimeout
+              value: "00:10:00" # 10 min
+            - name: ASPNETCORE_Kestrel__Limits__KeepAliveTimeout
+              value: "00:10:00" # 10 min
+
+            # -- Core service --
+            - name: OLCLS_SERVICEENDPOINT
+              value: {{ .Values.env.serviceEndpoint | quote }}
+            - name: OLCLS_PATHBASE
+              value: {{ .Values.env.pathBase | quote }}
+            - name: OLCLS_SELFHOSTWEBSITE
+              value: {{ .Values.env.selfHostWebsite | quote }}
+
+            # -- OL (Online Learning) database --
+            - name: OLCLS_OLDATABASESERVERTYPE
+              value: {{ .Values.global.database.serverType | quote }}
+            - name: OLCLS_OLDATABASESERVER
+              value: {{ .Values.global.database.server | quote }}
+            - name: OLCLS_OLDATABASENAME
+              value: {{ .Values.env.olDatabaseName | quote }}
+            - name: OLCLS_OLUSEINTEGRATEDSECURITY
+              value: {{ .Values.env.olUseIntegratedSecurity | quote }}
+            - name: OLCLS_OLUSESSL
+              value: {{ .Values.env.olUseSSL | quote }}
+            - name: OLCLS_OLTRUSTCERTIFICATE
+              value: {{ .Values.env.olTrustCertificate | quote }}
+            - name: OLCLS_OLSQLUSER
+              value: {{ .Values.global.database.user | quote }}
+            - name: OLCLS_OLSQLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.global.database.existingSecret }}
+                  name: {{ .Values.global.database.existingSecret }}
+                  {{- else }}
+                  name: {{ include "classification-monitor.fullname" . }}-secrets
+                  {{- end }}
+                  key: database-password
+
+            - name: OLCLS_AUTOCREATEDATABASE
+              value: {{ .Values.env.autoCreateDatabase | quote }}
+
+            # -- Project database (Classification Web Designer) --
+            - name: OLCLS_PROJDATABASESERVERTYPE
+              value: {{ .Values.global.database.serverType | quote }}
+            - name: OLCLS_PROJDATABASESERVER
+              value: {{ .Values.global.database.server | quote }}
+            - name: OLCLS_PROJDATABASENAME
+              value: {{ .Values.env.projDatabaseName | quote }}
+            - name: OLCLS_PROJUSEINTEGRATEDSECURITY
+              value: {{ .Values.env.projUseIntegratedSecurity | quote }}
+            - name: OLCLS_PROJUSESSL
+              value: {{ .Values.env.projUseSSL | quote }}
+            - name: OLCLS_PROJTRUSTCERTIFICATE
+              value: {{ .Values.env.projTrustCertificate | quote }}
+            - name: OLCLS_PROJSQLUSER
+              value: {{ .Values.global.database.user | quote }}
+            - name: OLCLS_PROJSQLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.global.database.existingSecret }}
+                  name: {{ .Values.global.database.existingSecret }}
+                  {{- else }}
+                  name: {{ include "classification-monitor.fullname" . }}-secrets
+                  {{- end }}
+                  key: database-password
+
+            # -- Auth / OAuth client (now sourced from the dedicated auth: block) --
+            - name: OLCLS_HASAUTHENABLED
+              value: {{ .Values.global.auth.enabled | quote }}
+            - name: OLCLS_AUTHSERVERURL
+              value: {{ .Values.global.auth.serverUrl | quote }}
+            - name: OLCLS_WEBAPPCLIENTID
+              value: {{ .Values.auth.webAppClientId | quote }}
+            - name: OLCLS_SERVERCLIENTID
+              value: {{ .Values.auth.serverClientId | quote }}
+            - name: OLCLS_SERVERCLIENTSECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.auth.existingServerClientSecret }}
+                  name: {{ .Values.auth.existingServerClientSecret }}
+                  {{- else }}
+                  name: {{ include "classification-monitor.fullname" . }}-secrets
+                  {{- end }}
+                  key: classificationmonitor-client-secret
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- $res := deepCopy .Values.resources }}
+            {{- if $useGpu }}
+            {{- $_ := set $res.limits "nvidia.com/gpu" .Values.gpu.limit }}
+            {{- end }}
+            {{- toYaml $res | nindent 12 }}
+{{- end }}

@@ -4,6 +4,7 @@ Each folder here is an umbrella chart that combines components from `../charts` 
 
 | Umbrella | Purpose |
 |---|---|
+| `umbrella-laera` | LAERA deployment (AI Server, Classification / Extraction Designer and Monitor, Site Management Tool) |
 | `umbrella-via` | VIA deployment (Batch Review, Field Review, Validation Service, Lookup Service), requires an existing Vinna platform |
 
 ## How `global` works
@@ -77,8 +78,8 @@ supports them.
 
 ### Changing the path
 
-The app path has a single source: the component's path base (`config.pathBase` for validationservice /
-lookupservice, `env.pathBase` for batchreview / fieldreview).
+The app path has a single source: the component's path base (`config.pathbase` for aiserver,
+`config.pathBase` for validationservice / lookupservice, `env.pathBase` for all others).
 
 - **Gateway mode:** change only the path base. The HTTPRoute `PathPrefix` and the OAuth redirect URI
   follow automatically. `ingress.*` is ignored.
@@ -103,6 +104,11 @@ Without them, large uploads or long requests fail at runtime, not at install tim
 | `fieldreview` | `/fieldreview` | `/` | default | - |
 | `validationservice` | `/validationservice` | `/validationservice/health/ready` | default | - |
 | `lookupservice` | `/lookupservice` | `/lookupservice/health/ready` | default | - |
+| `aiserver` | `/aiserver` | `/healthz/ready` | large uploads, 600 s | required if `replicaCount > 1` |
+| `clsdesigner` | `/classificationdesigner` | `/healthz/ready` | 500 MB, 600 s | required if `replicaCount > 1` (SignalR) |
+| `clsmonitor` | `/classificationmonitor` | `/healthz/ready` | 500 MB, 600 s | - |
+| `iedesigner` | `/extractiondesigner` | `/healthz/ready` | 500 MB, 600 s | required if `replicaCount > 1` (SignalR) |
+| `iemonitor` | `/extractionmonitor` | `/healthz/ready` | 500 MB, 600 s | - |
 
 `default` = no special requirement. Health check paths are the readiness probe paths of the pods.
 

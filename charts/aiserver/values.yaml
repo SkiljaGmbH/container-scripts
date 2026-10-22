@@ -1,0 +1,276 @@
+# Default values for aiserver-chart.standalone subchart).
+
+# This chart expects a parent (umbrella) chart to inject a `global:` block,
+# e.g.:
+#   global:
+#     database: { server, user, password, existingSecret, serverType, useIntegratedSecurity, useSSL, trustCertificate }
+#     auth: { enabled, serverUrl, trustCertificate, autoCreateAuthClients, adminClientId, adminClientSecret, existingAdminSecret }
+# If deployed standalone (without a parent), set `global` yourself in this file.
+
+# This is a YAML-formatted file.
+
+# --- Standalone fallback for `global` if this chart is ever run without a parent umbrella ---
+global:
+  database:
+    server: "my-db-cluster-rw.acme"
+    user: "myDBuser"
+    password: "ChangeME!"
+    existingSecret: "" # Name of an existing secret containing key 'database-password'. Takes precedence over 'password'.
+    serverType: 2      # 0=MSSQL, 1=Oracle, 2=Postgres
+    useIntegratedSecurity: "False"
+    useSSL: false
+    trustCertificate: true   # self-signed DB certificates: set true to trust them
+  auth:
+    enabled: true
+    serverUrl: "https://my.domain.com/auth"
+    trustCertificate: false  # self-signed cert on the Auth Server: NOT recommended for production, see docs
+    # Admin client used ONLY to auto-register OAuth clients during install/upgrade.
+    # Strongly recommended: use existingAdminSecret instead of adminClientSecret in production,
+    # since this client can create/modify any OAuth client on the Auth Server.
+    adminClientId: "AdminClient"
+    adminClientSecret: "CHANGE_ME!"
+    existingAdminSecret: "" # Name of an existing secret containing key 'admin-client-secret'. Takes precedence over adminClientSecret.
+  gateway:
+    # Gateway API instead of Ingress for all components (see httpRoute). The Gateway must already exist.
+    enabled: false
+    parentRefs: []   # e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+    hostnames: []    # e.g. [my.domain.com]
+
+
+# Optional: Override the chart name or override the full name
+nameOverride: ""
+fullnameOverride: ""
+
+# Image Configuration
+image:
+  repository:  skilja/aiserver
+  tag: "8.0" # always use patch versions like "x.x.x" for production. Floating verions like "x.x" can be rebased for security updates etc.
+  pullPolicy: IfNotPresent 
+  pullSecrets: []
+ #Example 
+ #   - my-registry-secret 
+ 
+# Replica Count, currently only 1 replica is fully supported, since the ai server is not stateless and requires sticky sessions for multiple replicas. If you want to use multiple replicas, ensure your ingress provider supports sticky sessions and configure it accordingly.
+replicaCount: 1
+
+# Optional: Service Account configuration
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: false
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Service Configuration
+service:
+  type: ClusterIP
+  port: 8047
+  targetPort: 8047
+
+# Ingress Configuration , only expose aiserver to internet if you have auth enabled!
+# className and annotations are provider-specific, see values_aws.yaml for an AWS ALB example.
+# Sticky sessions are needed for the ai server to work properly, when using multiple replicas, so ensure your ingress provider supports sticky sessions and configure it accordingly.
+# A possible workaround is to use a single replica of the ai server, do the initial configuration and then scale up to multiple replicas. API calls are not affected by sticky sessions.
+# Ingress mode only. Ignored in Gateway mode (global.gateway.enabled / httpRoute.enabled):
+# the HTTPRoute path is then taken from config.pathbase, the host from the gateway hostnames.
+# In Ingress mode, keep the path below in sync with config.pathbase.
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  # --- AWS ALB Ingress Controller (sticky sessions + big upload / long-running request support) ---
+  # alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400,deregistration_delay.timeout_seconds=600
+  # alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600
+  # --- NGINX Ingress Controller (sticky sessions + big upload / long-running request support) ---
+  # nginx.ingress.kubernetes.io/affinity: "cookie"
+  # nginx.ingress.kubernetes.io/session-cookie-name: "aiserver-affinity"
+  # nginx.ingress.kubernetes.io/session-cookie-expires: "86400"
+  # nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"
+  # nginx.ingress.kubernetes.io/proxy-body-size: "0"
+  # nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+  # nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+  # nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  hosts:
+    - host: my.domain.com
+      paths:
+        - path: /aiserver* 
+          pathType: ImplementationSpecific
+  tls: []
+
+# Gateway API (HTTPRoute) as alternative to the Ingress above. Only one of both is rendered.
+# The Gateway itself is NOT part of this chart, it must already exist (see prerequisites.md).
+# Usually configured once via global.gateway in the umbrella chart, the values here override it per chart.
+# The route path is taken from config.pathbase (PathPrefix), so it always matches the app path.
+httpRoute:
+  enabled: ""        # "" = inherit global.gateway.enabled, true/false = override for this chart
+  parentRefs: []     # empty = global.gateway.parentRefs, e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+  hostnames: []      # empty = global.gateway.hostnames. The first one is also used for the OAuth redirect URI
+  annotations: {}
+  timeouts: {}       # optional rule timeouts, e.g. { request: 600s, backendRequest: 600s }. Needs controller support
+
+
+# Persistent Volume Configuration
+persistence:
+  enabled: true
+  # Choose between "ebs" or "efs"  , this is mandatory, if this is not enabled, the pod will run but your downloaded / configured remote models will disapear after restarting the pods.
+  type: "ebs"  # Options: "ebs" (RWO) or "efs" (RWX)
+  annotations: {}      # PVC-level annotations, applies regardless of "ebs" or "efs" type (e.g. backup tags, provider-specific volume hints)
+  
+  # EBS Configuration (for single-node deployment)
+  ebs:
+    storageClass: ""           #set your provider's StorageClass, e.g. "auto-ebs-sc" on AWS
+    accessMode: ReadWriteOnce
+    size: 16Gi #adjust based on the size of the models that you want to use and persist
+  
+  # EFS Configuration (multi-node / replicaCount > 1)
+  efs:
+    storageClass: ""           # set your provider's StorageClass, e.g. "efs-sc" on AWS
+    accessMode: ReadWriteMany
+    size: 16Gi #adjust based on the size of the models that you want to use and persist
+  
+  mountPath: /opt/Skilja/AIServer/Models
+
+# Node Selector : applies to ALL pods, regardless of GPU mode
+nodeSelector:
+  kubernetes.io/arch: amd64  # x86/AMD64, # Base Node Selector - applies in BOTH CPU-only and GPU mode. AI Server supports both AMD64 and ARM64 architectures.
+
+
+# GPU Configuration
+gpu:
+  enabled: false
+  # Amount GPUs per Pod
+  limit: 1
+  # Additional selectors ONLY for GPU nodes
+    #node.kubernetes.io/instance-type: "g6.2xlarge"  # Example for AWS GPU Instance 
+  nodeSelector: {}
+  
+
+  # Toleration for GPU nodes, only applied if gpu.enabled. Standard NVIDIA taint "nvidia.com/gpu"
+  # with any value (e.g. "present" on GKE). The GPU limit already restricts the pod to nodes that
+  # run the NVIDIA device plugin; nodeSelector above is only needed to pick a specific GPU type.
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+  # Options: "all", "none", or specific GPU IDs like "0,1"
+  visibleDevices: "all"
+
+# Database Configuration (connection details come from global.database; only
+# the database name itself is service-specific)
+database:
+  name: AiServerDB
+
+
+# Authentication Configuration
+auth:
+  # Automatically register this client on the Auth Server during install/upgrade.
+  # Requires global.auth.adminClientId / adminClientSecret (or existingAdminSecret) to be set.
+  autoCreateAuthClients: true # if false then manual setup: https://hub.docker.com/r/skilja/aiserver#configuring-the-authorization-server-client.
+  serverClientId: "AiServer_K8s" #Change recommended 
+  serverClientSecret: "" # Optional. If empty and existingSecret is empty, a random secret is generated once and kept stable across upgrades.
+  existingSecret: "" # Existing secret with key 'clientSecret'. Takes precedence over serverClientSecret.
+
+
+# Application Configuration
+config:
+  serviceEndpoint: "http://+:8047"
+  selfHostWebsite: true
+  # Single source for the app path. Gateway mode: also used as HTTPRoute PathPrefix and OAuth redirect URI.
+  # Ingress mode: the ingress path must be changed accordingly. Do not use a different external path
+  # (URL rewrite): the app builds redirects and asset URLs from this value.
+  pathbase: "/aiserver" #ensure this matches the ingress path
+  useForwardedHeaders: true
+  hfSearchLimit: 800
+  logToDb: true
+  startLlmProc: true
+  
+  # LLM/LaBERTa LLM Configuration
+  llm:
+    maxCachedModels: 8
+    # Maximum number of LLM processes executing BERT models in parallel (-> BERNINA_LLM_MAXPROCESSCOUNT).
+    # Works with and without GPU (CPU-only is possible but slow, not recommended for production).
+    # "0" disables BERT processing in this container (only for Gateway / load balancer mode).
+    maxProcessCount: "1"
+  
+  # LLAMA/GenAI Configuration
+  llama:
+    queueTimeout: 120000
+    maxCachedModelsGb: 12
+    temperature: 0.01
+    maxConcurrentUsers: 10
+    # Number of LLama processes executing generative AI models (-> BERNINA_LLAMA_MAXPROCESSCOUNT).
+    # Upstream limits processing to 1. "0" disables generative AI processing in this container.
+    maxProcessCount: "1"
+  
+  # Queue Configuration
+  queue:
+    maxLength: 100
+    timeoutMinutes: 20
+    purgeDelete: false
+    softDeleteMinutes: 15
+
+  monitoring:
+    enabled: false
+    INSTANCENAME: ""  # Name of the Instance (defaults to Machine Name, if empty)
+    OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"  # OpenTelemetry Collector Endpoint : adjust host/namespace to your cluster
+    ASPNETCORE_METRICS_ENABLED: true #Enable Asp.Net Core metrics (default is disabled)
+    NETRUNTIME_METRICS_ENABLED: true #Enable .Net Runtime metrics (default is disabled)
+    RESOURCEMONITORING_METRICS_ENABLED: true #Enable Resource Monitoring (default is disabled)
+    REPORTING_INTERVAL_SECONDS: 5 # To enable regular reporting of the service-specific metric waiting time of generative AI requests, set the reporting interval in seconds. Set 0 to disable regular reporting.
+
+# Resource Limits (adjust for GPU or CPU mode)
+resources:
+  requests:
+    memory: "4Gi"
+    cpu: "1"
+  limits:
+    memory: "16Gi"
+    cpu: "4"
+
+# Probes
+
+
+# Gives the app time to start (LLM processes!) before liveness/readiness take over.
+# Max startup time = failureThreshold * periodSeconds (here 30 * 10s = 5 min).
+startupProbe:
+  enabled: true
+  path: /healthz/ready
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 30
+
+livenessProbe:
+  enabled: true
+  path: /healthz/live
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  path: /healthz/ready
+  initialDelaySeconds: 0
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+
+# Tolerations
+tolerations: []
+
+# Affinity - for EBS with multiple pods on the same node
+affinity:
+  # Automatically enabled when persistence.type=ebs and replicaCount > 1
+  enabled: false
+  podAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+    - labelSelector:
+        matchExpressions:
+        - key: app.kubernetes.io/name
+          operator: In
+          values:
+          - aiserver
+      topologyKey: kubernetes.io/hostname

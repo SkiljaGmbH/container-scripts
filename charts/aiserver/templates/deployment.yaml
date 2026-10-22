@@ -1,0 +1,241 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aiserver.fullname" . }}
+  labels:
+    {{- include "aiserver.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "aiserver.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aiserver.selectorLabels" . | nindent 8 }}
+    spec:
+      # Security Context for volume permissions
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+      {{- include "aiserver.imagePullSecrets" . | nindent 6 }}
+      {{- if .Values.gpu.enabled }}
+      nodeSelector:
+        {{- toYaml (merge (deepCopy .Values.nodeSelector) .Values.gpu.nodeSelector) | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.gpu.tolerations | nindent 8 }}
+      {{- else }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      {{- if eq (include "aiserver.affinity.enabled" .) "true" }}
+      affinity:
+        {{- if and (eq .Values.persistence.type "ebs") (gt (int .Values.replicaCount) 1) }}
+        # Automatic Pod Affinity for EBS with multiple replicas
+        # Forces all pods to schedule on the same node for RWO volume access
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                - {{ include "aiserver.name" . }}
+            topologyKey: kubernetes.io/hostname
+        {{- else }}
+        {{- toYaml .Values.affinity.podAffinity | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+      - name: aiserver
+        image: {{ include "aiserver.image" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.targetPort }}
+          protocol: TCP
+        {{- if .Values.livenessProbe.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.livenessProbe.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+        {{- end }}
+        {{- if .Values.readinessProbe.enabled }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.readinessProbe.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+        {{- end }}
+
+         {{- if .Values.startupProbe.enabled }}
+        startupProbe:
+          httpGet:
+            path: {{ .Values.startupProbe.path }}
+            port: http
+          periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+        {{- end }}
+
+        {{- if .Values.persistence.enabled }}
+        volumeMounts:
+        - name: models
+          mountPath: {{ .Values.persistence.mountPath }}
+        {{- end }}
+        env:
+        # --- Core service settings ---
+        - name: BERNINA_SERVICEENDPOINT
+          value: {{ .Values.config.serviceEndpoint | quote }}
+
+        # --- Database Configuration (connection details from global block; only
+        # the database name itself is service-specific) ---
+        - name: BERNINA_DBSERVERTYPE
+          value: {{ .Values.global.database.serverType | quote }}
+        - name: BERNINA_DBSERVER
+          value: {{ .Values.global.database.server | quote }}
+        - name: BERNINA_DBNAME
+          value: {{ .Values.database.name | quote }}
+        - name: BERNINA_DBINTEGRATEDSECURITY
+          value: {{ .Values.global.database.useIntegratedSecurity | quote }}
+        - name: BERNINA_DBUSER
+          value: {{ .Values.global.database.user | quote }}
+        - name: BERNINA_DBPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default (printf "%s-secrets" (include "aiserver.fullname" .)) .Values.global.database.existingSecret }}
+              key: database-password
+        - name: BERNINA_DBUSESSL
+          value: {{ .Values.global.database.useSSL | quote }}
+        - name: BERNINA_DBTRUSTSERVERCERTIFICATE
+          value: {{ .Values.global.database.trustCertificate | quote }}
+
+        # --- Application Configuration ---
+        - name: BERNINA_SELFHOSTWEBSITE
+          value: {{ .Values.config.selfHostWebsite | quote }}
+        - name: BERNINA_PATHBASE
+          value: {{ .Values.config.pathbase | quote }}
+        - name: BERNINA_USEFORWARDEDHEADERS
+          value: {{ .Values.config.useForwardedHeaders | quote }}
+        - name: BERNINA_HF_SEARCHLIMIT
+          value: {{ .Values.config.hfSearchLimit | quote }}
+        - name: BERNINA_LOG_TO_DB
+          value: {{ .Values.config.logToDb | quote }}
+        - name: BERNINA_START_LLMPROC
+          value: {{ .Values.config.startLlmProc | quote }}
+
+        # --- LLM Configuration ---
+        - name: BERNINA_LLM_MAXCACHEDMODELS
+          value: {{ .Values.config.llm.maxCachedModels | quote }}
+        - name: BERNINA_LLM_MAXPROCESSCOUNT
+          value: {{ include "aiserver.llm.maxProcessCount" . | quote }}
+
+        # --- LLAMA Configuration ---
+        - name: BERNINA_LLAMA_QUEUETIMEOUT
+          value: {{ .Values.config.llama.queueTimeout | quote }}
+        - name: BERNINA_LLAMA_MAXCACHEDMODELSGB
+          value: {{ .Values.config.llama.maxCachedModelsGb | quote }}
+        - name: BERNINA_LLAMA_TEMPERATURE
+          value: {{ .Values.config.llama.temperature | quote }}
+        - name: BERNINA_LLAMA_MAXCONCURRENTUSERS
+          value: {{ .Values.config.llama.maxConcurrentUsers | quote }}
+        - name: BERNINA_LLAMA_MAXPROCESSCOUNT
+          value: {{ include "aiserver.llama.maxProcessCount" . | quote }}
+
+        # --- Queue Configuration ---
+        - name: BERNINA_QUEUE_MAXLENGTH
+          value: {{ .Values.config.queue.maxLength | quote }}
+        - name: BERNINA_QUEUE_TIMEOUTMINUTES
+          value: {{ .Values.config.queue.timeoutMinutes | quote }}
+        - name: BERNINA_QUEUE_PURGEDELETE
+          value: {{ .Values.config.queue.purgeDelete | quote }}
+        - name: BERNINA_QUEUE_SOFTDELETEMINUTES
+          value: {{ .Values.config.queue.softDeleteMinutes | quote }}
+
+        # --- Monitoring Configuration ---
+        {{- if .Values.config.monitoring.enabled }}
+        {{- if .Values.config.monitoring.INSTANCENAME }}
+        - name: BERNINA_INSTANCENAME
+          value: {{ .Values.config.monitoring.INSTANCENAME | quote }}
+        {{- end }}
+        - name: BERNINA_OTLP_ENDPOINT
+          value: {{ .Values.config.monitoring.OTLP_ENDPOINT | quote }}
+        - name: BERNINA_OTLP_ASPNETCORE_METRICS_ENABLED
+          value: {{ .Values.config.monitoring.ASPNETCORE_METRICS_ENABLED | quote }}
+        - name: BERNINA_OTLP_NETRUNTIME_METRICS_ENABLED
+          value: {{ .Values.config.monitoring.NETRUNTIME_METRICS_ENABLED | quote }}
+        - name: BERNINA_OTLP_RESOURCEMONITORING_METRICS_ENABLED
+          value: {{ .Values.config.monitoring.RESOURCEMONITORING_METRICS_ENABLED | quote }}
+        - name: BERNINA_OTLP_REPORTING_INTERVAL_SECONDS
+          value: {{ .Values.config.monitoring.REPORTING_INTERVAL_SECONDS | quote }}
+        {{- end }}
+
+        # --- Authentication Configuration (server URL / trust cert from global
+        # block; client id/secret are AI-Server-specific, see .Values.auth) ---
+        {{- if .Values.global.auth.enabled }}
+        - name: BERNINA_HASAUTHENABLED
+          value: "True"
+        - name: BERNINA_AUTHSERVERURL
+          value: {{ .Values.global.auth.serverUrl | quote }}
+        - name: BERNINA_AUTHTRUSTCERTIFICATE
+          value: {{ .Values.global.auth.trustCertificate | quote }}
+        - name: BERNINA_SERVERCLIENTID
+          value: {{ .Values.auth.serverClientId | quote }}
+        - name: BERNINA_SERVERCLIENTSECRET
+          valueFrom:
+            secretKeyRef:
+              {{- if .Values.auth.existingSecret }}
+              name: {{ .Values.auth.existingSecret }}
+              {{- else }}
+              name: {{ include "aiserver.fullname" . }}-secrets
+              {{- end }}
+              key: clientSecret
+        {{- else }}
+        - name: BERNINA_HASAUTHENABLED
+          value: "False"
+        {{- end }}
+
+        # --- GPU Configuration ---
+        {{- if .Values.gpu.enabled }}
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: {{ .Values.gpu.visibleDevices | quote }}
+        {{- end }}
+
+        resources:
+        {{- if .Values.gpu.enabled }}
+          limits:
+            nvidia.com/gpu: {{ .Values.gpu.limit }}
+            {{- with .Values.resources.limits }}
+            memory: {{ .memory }}
+            cpu: {{ .cpu }}
+            {{- end }}
+          requests:
+            {{- with .Values.resources.requests }}
+            memory: {{ .memory }}
+            cpu: {{ .cpu }}
+            {{- end }}
+        {{- else }}
+          {{- toYaml .Values.resources | nindent 10 }}
+        {{- end }}
+
+      {{- if .Values.persistence.enabled }}
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: {{ include "aiserver.fullname" . }}-models
+      {{- end }}

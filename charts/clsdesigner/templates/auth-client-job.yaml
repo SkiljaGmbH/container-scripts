@@ -1,0 +1,74 @@
+{{- if .Values.auth.autoCreateAuthClients }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "classification-designer.fullname" . }}-register-auth-clients
+  labels:
+    {{- include "classification-designer.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        # Not the full selectorLabels: they may contain a component label, and the job pod
+        # must not match the Service selector of the app.
+        app.kubernetes.io/name: {{ include "classification-designer.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: register-auth-clients
+    spec:
+      restartPolicy: Never
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: register-auth-clients
+          image: alpine:3.20
+          command: ["sh", "/scripts/register-auth-clients.sh"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+          env:
+            # --- Admin client (shared, from global block) ---
+            - name: AUTH_SERVER_URL
+              value: {{ .Values.global.auth.serverUrl | quote }}
+            - name: ADMIN_CLIENT_ID
+              value: {{ .Values.global.auth.adminClientId | quote }}
+            {{- if .Values.global.auth.existingAdminSecret }}
+            - name: ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.auth.existingAdminSecret }}
+                  key: admin-client-secret
+            {{- else }}
+            - name: ADMIN_CLIENT_SECRET
+              value: {{ required "global.auth.adminClientSecret must be set (or use global.auth.existingAdminSecret)" .Values.global.auth.adminClientSecret | quote }}
+            {{- end }}
+
+            # --- Classification Designer clients to register (this chart) ---
+            - name: AUTOCREATE_CLSDESIGNER
+              value: "true"
+            - name: CLSDESIGNER_WEBAPP_CLIENT_ID
+              value: {{ .Values.auth.webAppClientId | quote }}
+            - name: CLSDESIGNER_WEBAPP_REDIRECT_URI
+              value: {{ printf "https://%s%s" (include "classification-designer.publicHost" .) .Values.env.pathBase | quote }}
+            - name: CLSDESIGNER_SERVER_CLIENT_ID
+              value: {{ .Values.auth.serverClientId | quote }}
+            - name: CLSDESIGNER_SERVER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.auth.existingServerClientSecret }}
+                  name: {{ .Values.auth.existingServerClientSecret }}
+                  {{- else }}
+                  name: {{ include "classification-designer.fullname" . }}-secrets
+                  {{- end }}
+                  key: classification-client-secret
+      volumes:
+        - name: script
+          configMap:
+            name: {{ include "classification-designer.fullname" . }}-register-auth-clients
+{{- end }}

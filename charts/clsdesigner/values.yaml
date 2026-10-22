@@ -1,0 +1,221 @@
+# Default values for classification-designer (standalone subchart).
+# This chart expects a parent (umbrella) chart to inject a `global:` block,
+# e.g.:
+#   global:
+#     database: { server, user, password, existingSecret, serverType, useIntegratedSecurity, useSSL, trustCertificate }
+#     auth:     { enabled, serverUrl, trustCertificate }
+# If deployed standalone (without a parent), set `global` yourself in this file.
+
+
+
+# --- Standalone fallback for `global` if this chart is ever run without a parent umbrella ---
+global:
+  database:
+    server: "my-db-cluster-rw.acme"
+    user: "myDBuser"
+    password: "ChangeME!"
+    existingSecret: "" #takes precedence over 'password' if set
+    serverType: 2      # 0=MSSQL, 1=Oracle, 2=Postgres
+    useIntegratedSecurity: "False"
+    useSSL: false
+    trustCertificate: true   # self-signed DB certificates: set true to trust them
+  auth:
+    enabled: true
+    serverUrl: "https://my.domain.com/auth"
+    trustCertificate: false  # self-signed cert on the Auth Server: NOT recommended for production, see docs
+    # Admin client used ONLY to auto-register OAuth clients during install/upgrade. And if autoCreateAuthClients is true
+    # Strongly recommended: use existingAdminSecret instead of adminClientSecret in production,
+    # since this client can create/modify any OAuth client on the Auth Server.
+    adminClientId: "AdminClient"
+    adminClientSecret: "CHANGE_ME!"
+    existingAdminSecret: "" # Name of an existing secret containing key 'admin-client-secret'. Takes precedence over adminClientSecret.
+  gateway:
+    # Gateway API instead of Ingress for all components (see httpRoute). The Gateway must already exist.
+    enabled: false
+    parentRefs: []   # e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+    hostnames: []    # e.g. [my.domain.com]
+
+
+
+nameOverride: ""
+fullnameOverride: ""
+
+
+enabled: true
+replicaCount: 1
+
+
+image:
+  repository: skilja/classificationdesigner
+  pullPolicy: IfNotPresent
+  # Base tag only, WITHOUT the "-llm-cuda" suffix. If gpu.enabled is true, "-llm-cuda"
+  # is appended automatically by the deployment template (e.g. "8.0" -> "8.0-llm-cuda").
+  tag: "8.0"
+  pullSecrets: []
+    # - my-registry-secret
+
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: ""
+
+
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+tolerations: []
+
+podAnnotations: {}
+
+
+service:
+  type: ClusterIP
+  port: 8046
+  targetPort: 8046
+
+auth:
+  # Automatically register this client on the Auth Server during install/upgrade.
+  # Requires global.auth.adminClientId / adminClientSecret (or existingAdminSecret) to be set.
+  autoCreateAuthClients: true
+  # Public web-app client (Authorization Code, browser-based, no secret needed).
+  webAppClientId: "ClsWebDesignerWeb"
+  # Confidential server client (Client Credentials, machine-to-machine).
+  serverClientId: "ClsWebDesignerServer"
+  serverClientSecret: ""
+  existingServerClientSecret: ""  # Name of an existing secret containing key 'classification-client-secret'. Takes precedence over serverClientSecret.
+  # if serverClientSecret and existingServerClientSecret are both empty, a random secret is generated and stored in the chart's Secret (see secret.yaml). This is the default behavior.
+
+env:
+  serviceEndpoint: "http://+:8046"
+  # Single source for the app path. Gateway mode: also used as HTTPRoute PathPrefix and OAuth redirect URI.
+  # Ingress mode: the ingress path must be changed accordingly. Do not use a different external path
+  # (URL rewrite): the app builds redirects and asset URLs from this value.
+  pathBase: "/classificationdesigner"
+  selfHostWebsite: "true"
+  databaseName: "ClassificationProjects"
+  license: "Please contact licensing@skilja.com to obtain a proper license"
+  autoCreateDatabase: "True"
+
+  # Request body size in bytes, used for BOTH the Kestrel transport limit (ASPNETCORE_Kestrel__Limits__MaxRequestBodySize)
+  # and the app-level CLSDESIGNER_MAXREQUESTBODYSIZE, so both stay in sync.
+  maxRequestBodySize: 524288000  # 500 MB
+
+  # The following have no documented default in documentation - leave empty ("") to
+  # let the application fall back to its own internal default, or set a value to override it.
+  projectUnloadIdleTime: ""       # seconds
+  readLockTimeout: ""             # seconds
+  writeLockTimeout: ""            # seconds
+  maxConcurrentJobCount: ""
+
+
+ocr:
+  maxProcessCount: 1              # CPU-mode OCR parallelism. Ignored when Lesa runs in GPU mode.
+  maxPagesTestSeparation: ""      # no documented default, leave empty to use app default
+  isMicrosoftReadOCRDockerBase: false
+  microsoftReadOCREndpointUrl: ""
+  microsoftReadOCRApiKey: ""
+  existingMicrosoftReadOCRApiKeySecret: ""  # Name of an existing secret containing key 'microsoft-read-ocr-api-key'. If set, takes precedence over 'microsoftReadOCRApiKey'.
+
+
+# Lesa OCR GPU behavior. Independent from the chart-level `gpu` block below:
+# `gpu.enabled` controls scheduling/resources/image tag, `lesa.useGpu` controls
+# whether the Lesa OCR engine itself is allowed to use a detected GPU at runtime.
+lesa:
+  useGpu: true #should not react negativly when there is no gpu
+# default is -1 for all GPUS,0 is the first GPU,1 is the second GPU, etc. Accepts a comma-separated list of indices (e.g. "2,3") per upstream docs, so keep as string.
+  gpuIndex: "0"
+# default is 1, high end GPU can have 2-4. 7 GB VRAM per Process is requiered.
+  maxOcrProcPerGpu: 1  # -> CLSDESIGNER_LESA_MAX_OCRPROC_PER_GPU, OCR processes running in parallel per GPU
+
+
+# Classification Monitor integration (separate component/subchart, see `classification-monitor`).
+monitor:
+  installed: false
+  endpoint: ""
+
+
+livenessProbe:
+  enabled: true
+  path: /healthz/live
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  timeoutSeconds: 10
+  successThreshold: 1
+  failureThreshold: 5
+
+
+readinessProbe:
+  enabled: true
+  path: /healthz/ready
+  initialDelaySeconds: 40
+  periodSeconds: 15
+  timeoutSeconds: 10
+  successThreshold: 1
+  failureThreshold: 5
+
+
+# Ingress mode only. Ignored in Gateway mode (global.gateway.enabled / httpRoute.enabled):
+# the HTTPRoute path is then taken from env.pathBase, the host from the gateway hostnames.
+# In Ingress mode, keep the path below in sync with env.pathBase.
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+    # --- AWS ALB Ingress Controller (big upload / long-running request support) ---
+    # alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600
+    # alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=600
+    # --- NGINX Ingress Controller (big upload / long-running request support) ---
+    # nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    # nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+    # nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    # nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  hosts:
+    - host: my.domain.com
+      paths:
+        - path: /classificationdesigner*
+          pathType: ImplementationSpecific
+  tls: []
+
+# Gateway API (HTTPRoute) as alternative to the Ingress above. Only one of both is rendered.
+# The Gateway itself is NOT part of this chart, it must already exist (see prerequisites.md).
+# Usually configured once via global.gateway in the umbrella chart, the values here override it per chart.
+# The route path is taken from env.pathBase (PathPrefix), so it always matches the app path.
+httpRoute:
+  enabled: ""        # "" = inherit global.gateway.enabled, true/false = override for this chart
+  parentRefs: []     # empty = global.gateway.parentRefs, e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+  hostnames: []      # empty = global.gateway.hostnames. The first one is also used for the OAuth redirect URI
+  annotations: {}
+  timeouts: {}       # optional rule timeouts, e.g. { request: 600s, backendRequest: 600s }. Needs controller support
+
+
+# This very much depends on your projects, however this is a good general starting point.
+resources:
+  limits:
+    cpu: 4
+    memory: 6Gi
+  requests:
+    cpu: 1
+    memory: 1Gi
+
+
+# GPU Configuration. When enabled, the deployment template automatically:
+#   - appends "-llm-cuda" to image.tag
+#   - merges gpu.nodeSelector into the pod's nodeSelector
+#   - applies gpu.tolerations instead of the base tolerations
+#   - adds resources.limits."nvidia.com/gpu" = gpu.limit
+#   - sets NVIDIA_VISIBLE_DEVICES = gpu.visibleDevices
+gpu:
+  enabled: false
+  limit: 1
+  nodeSelector: {}
+    # node.kubernetes.io/instance-type: "g6.2xlarge"  # Example for AWS GPU instance
+  # Toleration for GPU nodes, only applied if gpu.enabled. Standard NVIDIA taint "nvidia.com/gpu"
+  # with any value (e.g. "present" on GKE). The GPU limit already restricts the pod to nodes that
+  # run the NVIDIA device plugin; nodeSelector above is only needed to pick a specific GPU type.
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+  visibleDevices: "all"
+

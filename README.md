@@ -2,8 +2,8 @@
 
 Helm charts and umbrella charts for running Skilja products on Kubernetes.
 
-> **Currently published:** VIA (Batch Review, Field Review, Validation Service, Lookup Service).
-> Laera, Vinna and the Auth Server follow.
+> **Currently published:** VIA (Batch Review, Field Review, Validation Service, Lookup Service) and
+> LAERA (AI Server, Classification / Extraction Designer and Monitor). Vinna and the Auth Server follow.
 
 ## Structure
 
@@ -21,6 +21,12 @@ ContainerWorld/
 | `fieldreview` | Field Review web frontend (nginx), requires `validationservice` |
 | `validationservice` | Validation Service |
 | `lookupservice` | Lookup Service |
+| `aiserver` | AI Server (LAERA), optional GPU |
+| `clsdesigner` | Classification Designer (LAERA), chart name `classification-designer` |
+| `clsmonitor` | Classification Monitor / Online Learning (LAERA), chart name `classification-monitor` |
+| `iedesigner` | Extraction Designer (LAERA), chart name `extraction-designer` |
+| `iemonitor` | Extraction Monitor / Online Learning (LAERA), chart name `extraction-monitor` |
+| `sitemanagement` | Site Management Tool (LAERA): Secret for the interactive admin CLI, no workload |
 
 Each chart has its own `prerequisites.md` describing required secrets, dependencies and installation notes.
 
@@ -28,6 +34,7 @@ Each chart has its own `prerequisites.md` describing required secrets, dependenc
 
 | Umbrella | Contents |
 |---|---|
+| `umbrella-laera` | AI Server, Classification / Extraction Designer and Monitor, Site Management Tool (requires an existing Auth Server) |
 | `umbrella-via` | Batch Review, Field Review, Validation Service and Lookup Service (requires an existing Vinna platform and Auth Server) |
 
 ## Prerequisites
@@ -44,7 +51,7 @@ Each chart has its own `prerequisites.md` describing required secrets, dependenc
 2. Resolve dependencies:
 
    ```bash
-   cd umbrellas/umbrella-via
+   cd umbrellas/umbrella-via        # or umbrellas/umbrella-laera
    helm dependency update
    ```
 

@@ -1,0 +1,80 @@
+{{ .Chart.Name }} {{ .Chart.Version }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+{{- /* Public URL per enabled component: gateway hostname in Gateway mode, otherwise the first ingress host. */}}
+{{- $gw := .Values.global.gateway | default dict }}
+{{- $components := list
+  (list "aiserver" "AI Server" "config" "pathbase" "/aiserver")
+  (list "classification-designer" "Classification Designer" "env" "pathBase" "/classificationdesigner")
+  (list "classification-monitor" "Classification Monitor" "env" "pathBase" "/classificationmonitor")
+  (list "extraction-designer" "Extraction Designer" "env" "pathBase" "/extractiondesigner")
+  (list "extraction-monitor" "Extraction Monitor" "env" "pathBase" "/extractionmonitor") }}
+
+Components:
+{{- range $components }}
+{{- $v := index $.Values (index . 0) | default dict }}
+{{- if $v.enabled }}
+{{- $route := $v.httpRoute | default dict }}
+{{- $useGw := ternary $route.enabled ($gw.enabled | default false) (kindIs "bool" $route.enabled) }}
+{{- $host := "" }}
+{{- if $useGw }}
+{{- $host = first (default ($gw.hostnames | default list) $route.hostnames | default (list "<gateway-hostname>")) }}
+{{- else }}
+{{- $host = (first (dig "ingress" "hosts" (list (dict "host" "<ingress-host>")) $v)).host }}
+{{- end }}
+{{- $path := dig (index . 2) (index . 3) (index . 4) $v }}
+  {{ printf "%-24s" (index . 1) }} https://{{ $host }}{{ $path }}
+{{- end }}
+{{- end }}
+{{- $smt := index .Values "site-management-tool" | default dict }}
+{{- if $smt.enabled }}
+{{- $smtName := ternary .Release.Name (printf "%s-site-management-tool" .Release.Name) (contains "site-management-tool" .Release.Name) }}
+{{- with $smt.fullnameOverride }}{{ $smtName = . }}{{ end }}
+{{- $dbSecret := dig "database" "existingSecret" "" (.Values.global | default dict) }}
+
+Site Management Tool (grant initial rights: license managers, organization admins, organizations)
+--------------------------------------------------------------------------------------------------
+Needed once after the first install, and again after adding a module. Run it only after all module
+pods were Ready once (their first start creates the databases):
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+1. Start the CLI pod (PowerShell; in bash use: cat <<'EOF' | kubectl apply -f - ... EOF):
+
+@"
+apiVersion: v1
+kind: Pod
+metadata:
+  name: site-management-tool
+  namespace: {{ .Release.Namespace }}
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  containers:
+    - name: site-management-tool
+      image: {{ dig "image" "repository" "skilja/sitemanagement" $smt }}:{{ dig "image" "tag" "8.0" $smt }}
+      stdin: true
+      tty: true
+      env:
+        - name: TERM
+          value: xterm-256color
+      envFrom:
+        - secretRef:
+            name: {{ $smtName }}-secrets
+{{- if $dbSecret }}
+        - secretRef:
+            name: {{ $dbSecret }}
+{{- end }}
+"@ | kubectl apply -f -
+
+2. Connect (Windows Terminal or WSL, the menu needs a modern terminal):
+     kubectl attach -it site-management-tool -n {{ .Release.Namespace }}
+   Output from before the attach is only visible in: kubectl logs site-management-tool -n {{ .Release.Namespace }}
+
+3. Select the service by number and assign the rights (quickest: add your own admin user as
+   organization admin). Then restart the module pods to pick up the new rights:
+     kubectl rollout restart deployment -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+4. Delete the pod (it does not restart on its own):
+     kubectl delete pod site-management-tool -n {{ .Release.Namespace }}
+
+Show these notes again: helm get notes {{ .Release.Name }} -n {{ .Release.Namespace }}
+{{- end }}
