@@ -1,0 +1,74 @@
+{{- if .Values.auth.autoCreateAuthClients }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "classification-monitor.fullname" . }}-register-auth-clients
+  labels:
+    {{- include "classification-monitor.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        # Not the full selectorLabels: they may contain a component label, and the job pod
+        # must not match the Service selector of the app.
+        app.kubernetes.io/name: {{ include "classification-monitor.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: register-auth-clients
+    spec:
+      restartPolicy: Never
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: register-auth-clients
+          image: alpine:3.20
+          command: ["sh", "/scripts/register-auth-clients.sh"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+          env:
+            # --- Admin client (shared, from global block) ---
+            - name: AUTH_SERVER_URL
+              value: {{ .Values.global.auth.serverUrl | quote }}
+            - name: ADMIN_CLIENT_ID
+              value: {{ .Values.global.auth.adminClientId | quote }}
+            {{- if .Values.global.auth.existingAdminSecret }}
+            - name: ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.auth.existingAdminSecret }}
+                  key: admin-client-secret
+            {{- else }}
+            - name: ADMIN_CLIENT_SECRET
+              value: {{ required "global.auth.adminClientSecret must be set (or use global.auth.existingAdminSecret)" .Values.global.auth.adminClientSecret | quote }}
+            {{- end }}
+
+            # --- classification-monitor clients to register (this chart only) ---
+            - name: AUTOCREATE_CLSMONITOR
+              value: "true"
+            - name: CLSMONITOR_WEBAPP_CLIENT_ID
+              value: {{ .Values.auth.webAppClientId | quote }}
+            - name: CLSMONITOR_WEBAPP_REDIRECT_URI
+              value: {{ printf "https://%s%s" (include "classification-monitor.publicHost" .) .Values.env.pathBase | quote }}
+            - name: CLSMONITOR_SERVER_CLIENT_ID
+              value: {{ .Values.auth.serverClientId | quote }}
+            - name: CLSMONITOR_SERVER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.auth.existingServerClientSecret }}
+                  name: {{ .Values.auth.existingServerClientSecret }}
+                  {{- else }}
+                  name: {{ include "classification-monitor.fullname" . }}-secrets
+                  {{- end }}
+                  key: classificationmonitor-client-secret
+      volumes:
+        - name: script
+          configMap:
+            name: {{ include "classification-monitor.fullname" . }}-register-auth-clients
+{{- end }}

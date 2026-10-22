@@ -1,0 +1,15 @@
+apiVersion: v2
+name: classification-monitor
+description: >
+  Helm chart for Skilja Tegra Online Learning Monitors -
+  Classification Monitor (skilja/classificationmonitor)
+type: application
+version: 0.2.0
+appVersion: "8.0"
+keywords:
+  - Classification
+  - Skilja
+  - Tegra
+maintainers:
+  - name: Skilja Team
+icon: https://partner.skilja.com/onlinehelp/laerategrasdks/classificationwebdesigner/8.0/de/img/logo.png

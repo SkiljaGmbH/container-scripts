@@ -1,0 +1,12 @@
+{{- if .Values.auth.autoCreateAuthClients }}
+# CR characters are stripped: a Windows (CRLF) checkout of the script breaks "sh" in the alpine job container.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "classification-monitor.fullname" . }}-register-auth-clients
+  labels:
+    {{- include "classification-monitor.labels" . | nindent 4 }}
+data:
+  register-auth-clients.sh: |
+{{ .Files.Get "scripts/register-auth-clients.sh" | replace "\r" "" | indent 4 }}
+{{- end }}

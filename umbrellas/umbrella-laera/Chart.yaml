@@ -1,0 +1,42 @@
+apiVersion: v2
+name: umbrella-laera
+description: Umbrella chart for the Laera deployment
+type: application
+version: 0.2.0
+appVersion: "8.0"
+keywords:
+  - Skilja
+  - Laera
+maintainers:
+  - name: Skilja Team
+
+dependencies:
+  - name: aiserver                          
+    version: ">=1.4.0"                        
+    repository: "file://../../charts/aiserver"
+    condition: aiserver.enabled
+
+  - name: classification-designer
+    version: ">=0.1.2"
+    repository: "file://../../charts/clsdesigner"
+    condition: classification-designer.enabled
+
+  - name: classification-monitor
+    version: ">=0.1.2"
+    repository: "file://../../charts/clsmonitor"
+    condition: classification-monitor.enabled
+
+  - name: extraction-designer
+    version: ">=0.1.2"
+    repository: "file://../../charts/iedesigner"
+    condition: extraction-designer.enabled
+
+  - name: extraction-monitor
+    version: ">=0.1.2"
+    repository: "file://../../charts/iemonitor"
+    condition: extraction-monitor.enabled   
+
+  - name: site-management-tool
+    version: ">=0.1.0"
+    repository: "file://../../charts/sitemanagement"
+    condition: site-management-tool.enabled

@@ -1,0 +1,232 @@
+{{- if .Values.enabled }}
+{{- $useGpu := .Values.gpu.enabled }}
+{{- $baseTag := .Values.image.tag | default .Chart.AppVersion }}
+{{- $imageTag := $baseTag }}
+{{- if $useGpu }}
+{{- $imageTag = printf "%s-llm-cuda" $baseTag }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "extraction-designer.fullname" . }}
+  labels:
+    {{- include "extraction-designer.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "extraction-designer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "extraction-designer.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- else if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "extraction-designer.fullname" . }}
+      {{- end }}
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- if $useGpu }}
+        {{- $merged := merge (deepCopy .Values.gpu.nodeSelector) .Values.nodeSelector }}
+        {{- toYaml $merged | nindent 8 }}
+        {{- else }}
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+        {{- end }}
+      {{- if $useGpu }}
+      tolerations:
+        {{- toYaml .Values.gpu.tolerations | nindent 8 }}
+      {{- else if .Values.tolerations }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      containers:
+        # Extraction Designer (Kestrel) Container
+        - name: extraction-designer
+          image: "{{ .Values.image.repository }}:{{ $imageTag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            # Kestrel Upload Limits
+            - name: ASPNETCORE_Kestrel__Limits__MaxRequestBodySize
+              value: {{ .Values.env.maxRequestBodySize | quote }}
+            - name: ASPNETCORE_Kestrel__Limits__RequestHeadersTimeout
+              value: "00:10:00" # 10 min
+            - name: ASPNETCORE_Kestrel__Limits__KeepAliveTimeout
+              value: "00:10:00" # 10 min
+
+            # --- Core service settings ---
+            - name: EXTRDESIGNER_SERVICEENDPOINT
+              value: {{ .Values.env.serviceEndpoint | quote }}
+            - name: EXTRDESIGNER_PATHBASE
+              value: {{ .Values.env.pathBase | quote }}
+            # Separate web endpoint, usually empty (see env.serviceEndpointWeb in values.yaml).
+            - name: EXTRDESIGNER_SERVICEENDPOINTWEB
+              value: {{ .Values.env.serviceEndpointWeb | quote }}
+            - name: EXTRDESIGNER_SELFHOSTWEBSITE
+              value: {{ .Values.env.selfHostWebsite | quote }}
+
+            # --- Database settings (from global block, injected by parent umbrella) ---
+            - name: EXTRDESIGNER_DATABASESERVERTYPE
+              value: {{ .Values.global.database.serverType | quote }}
+            - name: EXTRDESIGNER_DATABASESERVER
+              value: {{ .Values.global.database.server | quote }}
+            - name: EXTRDESIGNER_DATABASENAME
+              value: {{ .Values.env.databaseName | quote }}
+            - name: EXTRDESIGNER_USEINTEGRATEDSECURITY
+              value: {{ .Values.global.database.useIntegratedSecurity | quote }}
+            - name: EXTRDESIGNER_USESSL
+              value: {{ .Values.global.database.useSSL | quote }}
+            - name: EXTRDESIGNER_TRUSTCERTIFICATE
+              value: {{ .Values.global.database.trustCertificate | quote }}
+            - name: EXTRDESIGNER_SQLUSER
+              value: {{ .Values.global.database.user | quote }}
+            - name: EXTRDESIGNER_SQLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.global.database.existingSecret }}
+                  name: {{ .Values.global.database.existingSecret }}
+                  {{- else }}
+                  name: {{ include "extraction-designer.fullname" . }}-secrets
+                  {{- end }}
+                  key: database-password
+            - name: EXTRDESIGNER_AUTOCREATEDATABASE
+              value: {{ .Values.env.autoCreateDatabase | quote }}
+
+            # --- Auth settings (from global block) ---
+            - name: EXTRDESIGNER_HASAUTHENABLED
+              value: {{ .Values.global.auth.enabled | quote }}
+            - name: EXTRDESIGNER_AUTHSERVERURL
+              value: {{ .Values.global.auth.serverUrl | quote }}
+            - name: EXTRDESIGNER_AUTHTRUSTCERTIFICATE
+              value: {{ .Values.global.auth.trustCertificate | quote }}
+            - name: EXTRDESIGNER_WEBAPPCLIENTID
+              value: {{ .Values.auth.webAppClientId | quote }}
+            - name: EXTRDESIGNER_SERVERCLIENTID
+              value: {{ .Values.auth.serverClientId | quote }}
+            - name: EXTRDESIGNER_SERVERCLIENTSECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.auth.existingServerClientSecret }}
+                  name: {{ .Values.auth.existingServerClientSecret }}
+                  {{- else }}
+                  name: {{ include "extraction-designer.fullname" . }}-secrets
+                  {{- end }}
+                  key: extraction-client-secret
+            - name: EXTRDESIGNER_LICENSE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "extraction-designer.fullname" . }}-secrets
+                  key: extraction-license
+
+            # --- Timeouts / limits (empty string = app-internal default) ---
+            - name: EXTRDESIGNER_MAXREQUESTBODYSIZE
+              value: {{ .Values.env.maxRequestBodySize | quote }}
+            - name: EXTRDESIGNER_PROJECTUNLOADIDLETIME
+              value: {{ .Values.env.projectUnloadIdleTime | quote }}
+            - name: EXTRDESIGNER_OCRUNLOADIDLETIME
+              value: {{ .Values.env.ocrUnloadIdleTime | quote }}
+            - name: EXTRDESIGNER_READLOCKTIMEOUT
+              value: {{ .Values.env.readLockTimeout | quote }}
+            - name: EXTRDESIGNER_WRITELOCKTIMEOUT
+              value: {{ .Values.env.writeLockTimeout | quote }}
+            - name: EXTRDESIGNER_MAXCONCURRENTJOBCOUNT
+              value: {{ .Values.env.maxConcurrentJobCount | quote }}
+            - name: EXTRDESIGNER_GLOBALEXTRACTIONSCHEMEURL
+              value: {{ .Values.env.globalExtractionSchemeUrl | quote }}
+
+            # --- OCR settings ---
+            - name: EXTRDESIGNER_MAXOCRPROCESSCOUNT
+              value: {{ .Values.ocr.maxProcessCount | quote }}
+            - name: EXTRDESIGNER_MAXPAGESTESTSEPARATION
+              value: {{ .Values.ocr.maxPagesTestSeparation | quote }}
+            - name: EXTRDESIGNER_ISMICROSOFTREADOCRDOCKERBASE
+              value: {{ .Values.ocr.isMicrosoftReadOCRDockerBase | quote }}
+            - name: EXTRDESIGNER_MICROSOFTREADOCRENDPOINTURL
+              value: {{ .Values.ocr.microsoftReadOCREndpointUrl | quote }}
+            {{- if or .Values.ocr.microsoftReadOCRApiKey .Values.ocr.existingMicrosoftReadOCRApiKeySecret }}
+            - name: EXTRDESIGNER_MICROSOFTREADOCRAPIKEY
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.ocr.existingMicrosoftReadOCRApiKeySecret }}
+                  name: {{ .Values.ocr.existingMicrosoftReadOCRApiKeySecret }}
+                  {{- else }}
+                  name: {{ include "extraction-designer.fullname" . }}-secrets
+                  {{- end }}
+                  key: microsoft-read-ocr-api-key
+            {{- end }}
+
+            # --- Lesa OCR / GPU settings ---
+            - name: EXTRDESIGNER_LESA_USEGPU
+              value: {{ .Values.lesa.useGpu | quote }}
+            - name: EXTRDESIGNER_LESA_GPU_INDEX
+              value: {{ .Values.lesa.gpuIndex | quote }}
+            - name: EXTRDESIGNER_LESA_MAX_OCRPROC_PER_GPU
+              value: {{ .Values.lesa.maxOcrProcPerGpu | quote }}
+            {{- if $useGpu }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: {{ .Values.gpu.visibleDevices | quote }}
+            {{- end }}
+            {{- if .Values.gpu.higherPriority }}
+            # Raw, un-prefixed env var (not part of EXTRDESIGNER_* settings-file mapping).
+            - name: OCR_HIGHER_PRIORITY
+              value: "1"
+            {{- end }}
+
+            # --- Extraction Monitor (online learning) ---
+            - name: EXTRDESIGNER_OLSERVICEISINSTALLED
+              value: {{ .Values.monitor.installed | quote }}
+            - name: EXTRDESIGNER_OLSERVICEENDPOINT
+              value: {{ .Values.monitor.endpoint | quote }}
+
+            # --- Vinna platform integration ---
+            - name: EXTRDESIGNER_PLATFORM_USED
+              value: {{ .Values.platform.used | quote }}
+            - name: EXTRDESIGNER_PLATFORMNAME
+              value: {{ .Values.platform.name | quote }}
+            - name: EXTRDESIGNER_PLATFORMDESIGNERURL
+              value: {{ .Values.platform.designerUrl | quote }}
+            - name: EXTRDESIGNER_PLATFORMDESIGNERSERVICEURL
+              value: {{ .Values.platform.designerServiceUrl | quote }}
+            - name: EXTRDESIGNER_PLATFORMAPIVERSION
+              value: {{ .Values.platform.apiVersion | quote }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- $res := deepCopy .Values.resources }}
+            {{- if $useGpu }}
+            {{- $_ := set $res.limits "nvidia.com/gpu" .Values.gpu.limit }}
+            {{- end }}
+            {{- toYaml $res | nindent 12 }}
+{{- end }}

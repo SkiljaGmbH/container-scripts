@@ -1,0 +1,41 @@
+{{- if and true (eq (include "aiserver.gatewayEnabled" .) "true") }}
+{{- $parentRefs := include "aiserver.gatewayParentRefs" . | fromJsonArray }}
+{{- if not $parentRefs }}
+{{- fail "Gateway mode needs httpRoute.parentRefs or global.gateway.parentRefs (the existing Gateway to attach to)" }}
+{{- end }}
+{{- $hostnames := include "aiserver.gatewayHostnames" . | fromJsonArray }}
+{{- $path := .Values.config.pathbase | trimSuffix "/" }}
+{{- if not $path }}
+{{- fail "config.pathbase must be set, it is used as HTTPRoute PathPrefix" }}
+{{- end }}
+# Gateway API route, rendered instead of the Ingress. The Gateway itself is not part of this chart.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "aiserver.fullname" . }}
+  labels:
+    {{- include "aiserver.labels" . | nindent 4 }}
+  {{- with .Values.httpRoute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- toYaml $parentRefs | nindent 4 }}
+  {{- with $hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ $path }}
+      backendRefs:
+        - name: {{ include "aiserver.fullname" . }}
+          port: {{ .Values.service.port }}
+      {{- with .Values.httpRoute.timeouts }}
+      timeouts:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

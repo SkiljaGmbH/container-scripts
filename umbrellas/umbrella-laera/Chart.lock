@@ -1,0 +1,21 @@
+dependencies:
+- name: aiserver
+  repository: file://../../charts/aiserver
+  version: 1.5.0
+- name: classification-designer
+  repository: file://../../charts/clsdesigner
+  version: 0.2.0
+- name: classification-monitor
+  repository: file://../../charts/clsmonitor
+  version: 0.2.0
+- name: extraction-designer
+  repository: file://../../charts/iedesigner
+  version: 0.2.0
+- name: extraction-monitor
+  repository: file://../../charts/iemonitor
+  version: 0.2.0
+- name: site-management-tool
+  repository: file://../../charts/sitemanagement
+  version: 0.1.1
+digest: sha256:9cf1c961f88af9443c40c73219bec97e9ace8f86ada393f515e050171227cec2
+generated: "2026-10-19T14:31:23.90408403Z"

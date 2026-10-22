@@ -1,0 +1,32 @@
+{{- if .Values.persistence.enabled }}
+{{- $storageConfig := dict }}
+{{- if eq .Values.persistence.type "ebs" }}
+  {{- $storageConfig = .Values.persistence.ebs }}
+{{- else if eq .Values.persistence.type "efs" }}
+  {{- $storageConfig = .Values.persistence.efs }}
+{{- else }}
+  {{- fail (printf "Invalid persistence.type '%s'. Must be 'ebs' or 'efs'" .Values.persistence.type) }}
+{{- end }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "aiserver.fullname" . }}-models
+  labels:
+    {{- include "aiserver.labels" . | nindent 4 }}
+  {{- with .Values.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ $storageConfig.accessMode }}
+  {{- if $storageConfig.storageClass }}
+  storageClassName: {{ $storageConfig.storageClass }}
+  {{- end }}
+  {{- if $storageConfig.volumeMode }}
+  volumeMode: {{ $storageConfig.volumeMode }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $storageConfig.size }}
+{{- end }}

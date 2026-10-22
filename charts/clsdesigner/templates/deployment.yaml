@@ -1,0 +1,203 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "classification-designer.fullname" . }}
+  labels:
+    {{- include "classification-designer.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "classification-designer.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "classification-designer.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      {{- end }}
+      {{- if or .Values.serviceAccount.create .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name | default (include "classification-designer.fullname" .) }}
+      {{- end }}
+      {{- if .Values.gpu.enabled }}
+      nodeSelector:
+        {{- toYaml (merge (deepCopy .Values.gpu.nodeSelector) .Values.nodeSelector) | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.gpu.tolerations | nindent 8 }}
+      {{- else }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      containers:
+        # Classification Designer (Kestrel) Container
+        - name: classification-designer
+          # GPU-enabled deployments automatically get the "-llm-cuda" tag suffix appended.
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{- if .Values.gpu.enabled }}-llm-cuda{{- end }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            # Kestrel transport-level upload limit, kept in sync with env.maxRequestBodySize
+            - name: ASPNETCORE_Kestrel__Limits__MaxRequestBodySize
+              value: {{ .Values.env.maxRequestBodySize | quote }}
+            - name: ASPNETCORE_Kestrel__Limits__RequestHeadersTimeout
+              value: "00:10:00" # 10 min
+            - name: ASPNETCORE_Kestrel__Limits__KeepAliveTimeout
+              value: "00:10:00" # 10 min
+            - name: CLSDESIGNER_SERVICEENDPOINT
+              value: {{ .Values.env.serviceEndpoint | quote }}
+            - name: CLSDESIGNER_PATHBASE
+              value: {{ .Values.env.pathBase | quote }}
+            - name: CLSDESIGNER_SELFHOSTWEBSITE
+              value: {{ .Values.env.selfHostWebsite | quote }}
+            - name: CLSDESIGNER_DATABASESERVERTYPE
+              value: {{ .Values.global.database.serverType | quote }}
+            - name: CLSDESIGNER_DATABASESERVER
+              value: {{ .Values.global.database.server | quote }}
+            - name: CLSDESIGNER_USESSL
+              value: {{ .Values.global.database.useSSL | quote }}
+            - name: CLSDESIGNER_TRUSTCERTIFICATE
+              value: {{ .Values.global.database.trustCertificate | quote }}
+            - name: CLSDESIGNER_DATABASENAME
+              value: {{ .Values.env.databaseName | quote }}
+            - name: CLSDESIGNER_USEINTEGRATEDSECURITY
+              value: {{ .Values.global.database.useIntegratedSecurity | quote }}
+            - name: CLSDESIGNER_SQLUSER
+              value: {{ .Values.global.database.user | quote }}
+            - name: CLSDESIGNER_SQLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.global.database.existingSecret }}
+                  name: {{ .Values.global.database.existingSecret }}
+                  key: database-password
+                  {{- else }}
+                  name: {{ include "classification-designer.fullname" . }}-secrets
+                  key: database-password
+                  {{- end }}
+            - name: CLSDESIGNER_LICENSE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "classification-designer.fullname" . }}-secrets
+                  key: classification-license
+            - name: CLSDESIGNER_AUTOCREATEDATABASE
+              value: {{ .Values.env.autoCreateDatabase | quote }}
+            - name: CLSDESIGNER_HASAUTHENABLED
+              value: {{ .Values.global.auth.enabled | quote }}
+            - name: CLSDESIGNER_AUTHSERVERURL
+              value: {{ .Values.global.auth.serverUrl | quote }}
+            - name: CLSDESIGNER_AUTHTRUSTCERTIFICATE
+              value: {{ .Values.global.auth.trustCertificate | quote }}
+            - name: CLSDESIGNER_WEBAPPCLIENTID
+              value: {{ .Values.auth.webAppClientId | quote }}
+            - name: CLSDESIGNER_SERVERCLIENTID
+              value: {{ .Values.auth.serverClientId | quote }}
+            - name: CLSDESIGNER_SERVERCLIENTSECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.auth.existingServerClientSecret }}
+                  name: {{ .Values.auth.existingServerClientSecret }}
+                  {{- else }}
+                  name: {{ include "classification-designer.fullname" . }}-secrets
+                  {{- end }}
+                  key: classification-client-secret
+            - name: CLSDESIGNER_MAXREQUESTBODYSIZE
+              value: {{ .Values.env.maxRequestBodySize | quote }}
+            {{- if .Values.env.projectUnloadIdleTime }}
+            - name: CLSDESIGNER_PROJECTUNLOADIDLETIME
+              value: {{ .Values.env.projectUnloadIdleTime | quote }}
+            {{- end }}
+            {{- if .Values.env.readLockTimeout }}
+            - name: CLSDESIGNER_READLOCKTIMEOUT
+              value: {{ .Values.env.readLockTimeout | quote }}
+            {{- end }}
+            {{- if .Values.env.writeLockTimeout }}
+            - name: CLSDESIGNER_WRITELOCKTIMEOUT
+              value: {{ .Values.env.writeLockTimeout | quote }}
+            {{- end }}
+            {{- if .Values.env.maxConcurrentJobCount }}
+            - name: CLSDESIGNER_MAXCONCURRENTJOBCOUNT
+              value: {{ .Values.env.maxConcurrentJobCount | quote }}
+            {{- end }}
+            - name: CLSDESIGNER_MAXOCRPROCESSCOUNT
+              value: {{ .Values.ocr.maxProcessCount | quote }}
+            {{- if .Values.ocr.maxPagesTestSeparation }}
+            - name: CLSDESIGNER_MAXPAGESTESTSEPARATION
+              value: {{ .Values.ocr.maxPagesTestSeparation | quote }}
+            {{- end }}
+            - name: CLSDESIGNER_ISMICROSOFTREADOCRDOCKERBASE
+              value: {{ .Values.ocr.isMicrosoftReadOCRDockerBase | quote }}
+            {{- if .Values.ocr.microsoftReadOCREndpointUrl }}
+            - name: CLSDESIGNER_MICROSOFTREADOCRENDPOINTURL
+              value: {{ .Values.ocr.microsoftReadOCREndpointUrl | quote }}
+            {{- end }}
+            {{- if or .Values.ocr.microsoftReadOCRApiKey .Values.ocr.existingMicrosoftReadOCRApiKeySecret }}
+            - name: CLSDESIGNER_MICROSOFTREADOCRAPIKEY
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.ocr.existingMicrosoftReadOCRApiKeySecret }}
+                  name: {{ .Values.ocr.existingMicrosoftReadOCRApiKeySecret }}
+                  {{- else }}
+                  name: {{ include "classification-designer.fullname" . }}-secrets
+                  {{- end }}
+                  key: microsoft-read-ocr-api-key
+            {{- end }}
+            - name: CLSDESIGNER_LESA_USEGPU
+              value: {{ .Values.lesa.useGpu | quote }}
+            - name: CLSDESIGNER_LESA_GPU_INDEX
+              value: {{ .Values.lesa.gpuIndex | quote }}
+            - name: CLSDESIGNER_LESA_MAX_OCRPROC_PER_GPU
+              value: {{ .Values.lesa.maxOcrProcPerGpu | quote }}
+            - name: CLSDESIGNER_OLSERVICEISINSTALLED
+              value: {{ .Values.monitor.installed | quote }}
+            {{- if .Values.monitor.endpoint }}
+            - name: CLSDESIGNER_OLSERVICEENDPOINT
+              value: {{ .Values.monitor.endpoint | quote }}
+            {{- end }}
+            {{- if .Values.gpu.enabled }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: {{ .Values.gpu.visibleDevices | quote }}
+            {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- if .Values.gpu.enabled }}
+            {{- $res := deepCopy .Values.resources }}
+            {{- $_ := set $res.limits "nvidia.com/gpu" (.Values.gpu.limit | int) }}
+            {{- toYaml $res | nindent 12 }}
+            {{- else }}
+            {{- toYaml .Values.resources | nindent 12 }}
+            {{- end }}
+{{- end }}

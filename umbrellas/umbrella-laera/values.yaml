@@ -1,0 +1,234 @@
+# Umbrella chart for LAERA. Component 1: AI Server.
+# Settings under "global" are injected into every subchart and override the
+# standalone fallbacks in the subcharts' own values.yaml.
+
+global:
+  database:
+    serverType: 2                  # 0=MSSQL, 1=Oracle, 2=PostgreSQL
+    server: "my-db-cluster-rw.acme"
+    user: "myDBUser"
+    password: ""                   # used only if existingSecret is empty
+    existingSecret: ""             # existing secret with key 'database-password'
+    useIntegratedSecurity: "False"
+    useSSL: false
+    trustCertificate: true         # self-signed DB certificates
+  auth:
+    enabled: true
+    serverUrl: "https://my.domain.com/auth"
+    trustCertificate: false        # self-signed cert on the Auth Server, not recommended for production
+    # Admin client, used only to auto-register OAuth clients (autoCreateAuthClients: true).
+    adminClientId: ""
+    adminClientSecret: ""
+    existingAdminSecret: ""        # existing secret with key 'admin-client-secret'
+  gateway:
+    # Gateway API (HTTPRoute) instead of Ingress for ALL components. The Gateway must already exist,
+    # it is not created by this chart. Per component, <component>.httpRoute.* overrides these values.
+    # Controller specific settings (upload size, timeouts, sticky sessions) see ../README.md.
+    # Route path per component = its path base, NOT ingress.hosts[].paths:
+    #   aiserver.config.pathbase, all others <component>.env.pathBase
+    enabled: false                 # false = Ingress; parentRefs/hostnames are only used if true
+    parentRefs: []                 # e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
+    hostnames: []                  # e.g. [my.domain.com], the first one is used for the OAuth redirect URIs
+
+# ---------------------------------------------------------------
+# 1. AI Server
+# ---------------------------------------------------------------
+
+aiserver:
+  enabled: false
+  image:
+    tag: "8.0"
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from aiserver.config.pathbase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /aiserver*
+            pathType: ImplementationSpecific
+  database:
+    name: AiServerDB
+  auth:
+    autoCreateAuthClients: true
+    serverClientId: "AiServer_K8s"
+    serverClientSecret: ""         # optional
+    existingSecret: ""             # existing secret with key 'clientSecret'; empty = generated once, kept stable
+  persistence:
+    enabled: true
+    type: ebs
+    ebs:
+      storageClass: ""     # empty = cluster default StorageClass (e.g. "auto-ebs-sc" on EKS, "local-path" on Talos)
+  gpu:
+    enabled: false                 # true = run on a GPU node (requests nvidia.com/gpu, tolerates taint nvidia.com/gpu:NoSchedule)
+    # GPU nodes with a different taint: set the whole list, it REPLACES the default (keep nvidia.com/gpu):
+    # tolerations:
+    #   - { key: "nvidia.com/gpu", operator: "Exists", effect: "NoSchedule" }
+    #   - { key: "workload-type", operator: "Equal", value: "gpu", effect: "NoSchedule" }   # example: custom taint
+  config:
+    llm:
+      maxProcessCount: "1"         # BERT processes; "0" disables BERT (Gateway / LB mode only), not "CPU-only"
+    llama:
+      maxProcessCount: "1"         # generative AI, upstream limit 1; "0" disables it
+
+# ---------------------------------------------------------------
+# 2. CLS Designer
+# ---------------------------------------------------------------
+
+classification-designer:
+  enabled: true
+  image:
+    tag: "8.0"
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from classification-designer.env.pathBase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /classificationdesigner*
+            pathType: ImplementationSpecific
+  env:
+    pathBase: "/classificationdesigner"   # must match the ingress path above
+    databaseName: "ClassificationProjects"
+    license: "Please contact licensing@skilja.com to obtain a proper license"
+  auth:
+    autoCreateAuthClients: true
+    webAppClientId: "ClsWebDesignerWeb"       # public client (browser)
+    serverClientId: "ClsWebDesignerServer"    # confidential client (client credentials)
+    serverClientSecret: ""                    # optional
+    existingServerClientSecret: ""            # existing secret with key 'classification-client-secret'; empty = generated once, kept stable
+  gpu:
+    enabled: false                 # true = run on a GPU node (requests nvidia.com/gpu, tolerates taint nvidia.com/gpu:NoSchedule)
+    # GPU nodes with a different taint: set the whole list, it REPLACES the default (keep nvidia.com/gpu):
+    # tolerations:
+    #   - { key: "nvidia.com/gpu", operator: "Exists", effect: "NoSchedule" }
+    #   - { key: "workload-type", operator: "Equal", value: "gpu", effect: "NoSchedule" }   # example: custom taint
+  lesa:
+    useGpu: false                             # CPU-only setup
+
+# ---------------------------------------------------------------
+# 3. CLS Monitor
+# ---------------------------------------------------------------
+
+classification-monitor:
+  enabled: false
+  image:
+    tag: "8.0"
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from classification-monitor.env.pathBase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /classificationmonitor*
+            pathType: ImplementationSpecific
+  env:
+    pathBase: "/classificationmonitor"      # must match the ingress path above
+    olDatabaseName: "OLClassification"
+    projDatabaseName: "ClassificationProjects"   # must match classification-designer.env.databaseName
+    # The monitor does not read these from global.database, so set them explicitly:
+    olUseSSL: "false"
+    olTrustCertificate: "true"
+    projUseSSL: "false"
+    projTrustCertificate: "true"
+  auth:
+    autoCreateAuthClients: true
+    webAppClientId: "ClsOLMonitorWeb"          # public client (browser)
+    serverClientId: "ClsOLMonitorServer"       # confidential client (client credentials)
+    serverClientSecret: ""                     # optional
+    existingServerClientSecret: ""             # existing secret with key 'classificationmonitor-client-secret'; empty = generated once, kept stable
+  gpu:
+    enabled: false                 # true = run on a GPU node (requests nvidia.com/gpu, tolerates taint nvidia.com/gpu:NoSchedule)
+    # GPU nodes with a different taint: set the whole list, it REPLACES the default (keep nvidia.com/gpu):
+    # tolerations:
+    #   - { key: "nvidia.com/gpu", operator: "Exists", effect: "NoSchedule" }
+    #   - { key: "workload-type", operator: "Equal", value: "gpu", effect: "NoSchedule" }   # example: custom taint
+
+# ---------------------------------------------------------------
+# 4. IE Designer
+# ---------------------------------------------------------------
+
+extraction-designer:
+  enabled: false
+  image:
+    tag: "8.0"
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from extraction-designer.env.pathBase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /extractiondesigner*
+            pathType: ImplementationSpecific
+  env:
+    pathBase: "/extractiondesigner"         # must match the ingress path above
+    databaseName: "ExtractionProjects"
+    license: "Please contact licensing@skilja.com to obtain a proper license"
+  auth:
+    autoCreateAuthClients: true
+    webAppClientId: "ExtrWebDesignerWeb"       # public client (browser)
+    serverClientId: "ExtrWebDesignerServer"    # confidential client (client credentials)
+    serverClientSecret: ""                     # optional
+    existingServerClientSecret: ""             # existing secret with key 'extraction-client-secret'; empty = generated once, kept stable
+  monitor:
+    installed: false                           # set true together with endpoint when IE Monitor is deployed
+    endpoint: ""
+  gpu:
+    enabled: false                 # true = run on a GPU node (requests nvidia.com/gpu, tolerates taint nvidia.com/gpu:NoSchedule)
+    # GPU nodes with a different taint: set the whole list, it REPLACES the default (keep nvidia.com/gpu):
+    # tolerations:
+    #   - { key: "nvidia.com/gpu", operator: "Exists", effect: "NoSchedule" }
+    #   - { key: "workload-type", operator: "Equal", value: "gpu", effect: "NoSchedule" }   # example: custom taint
+  lesa:
+    useGpu: false                              # CPU-only setup (chart default is true)
+
+# ---------------------------------------------------------------
+# 5. IE Monitor
+# ---------------------------------------------------------------
+
+extraction-monitor:
+  enabled: false
+  image:
+    tag: "8.0"
+  # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from extraction-monitor.env.pathBase.
+  ingress:
+    hosts:
+      - host: my.domain.com
+        paths:
+          - path: /extractionmonitor*
+            pathType: ImplementationSpecific
+  env:
+    pathBase: "/extractionmonitor"          # must match the ingress path above
+    olDatabaseName: "OLExtraction"
+    projDatabaseName: "ExtractionProjects"      # must match extraction-designer.env.databaseName
+    # The monitor does not read these from global.database, so set them explicitly:
+    olUseSSL: "false"
+    olTrustCertificate: "true"
+    projUseSSL: "false"
+    projTrustCertificate: "true"
+  auth:
+    autoCreateAuthClients: true
+    webAppClientId: "ExtrOLMonitorWeb"         # public client (browser)
+    serverClientId: "ExtrOLMonitorServer"      # confidential client (client credentials)
+    serverClientSecret: ""                     # optional
+    existingServerClientSecret: ""             # existing secret with key 'extraction-client-secret'; empty = generated once, kept stable
+  gpu:
+    enabled: false                 # true = run on a GPU node (requests nvidia.com/gpu, tolerates taint nvidia.com/gpu:NoSchedule)
+    # GPU nodes with a different taint: set the whole list, it REPLACES the default (keep nvidia.com/gpu):
+    # tolerations:
+    #   - { key: "nvidia.com/gpu", operator: "Exists", effect: "NoSchedule" }
+    #   - { key: "workload-type", operator: "Equal", value: "gpu", effect: "NoSchedule" }   # example: custom taint
+
+# ---------------------------------------------------------------
+# 6. Site Management Tool (one-time admin CLI, creates only a Secret)
+# ---------------------------------------------------------------
+site-management-tool:
+  enabled: true     # creates only a Secret with the DB connection variables, no running workload
+  # Interactive CLI to grant initial rights (license managers, organization admins, organizations).
+  # Needed once after the first install, and again after adding a module. It only works after the
+  # module pods were Ready once (their first start creates the databases).
+  #
+  # The step-by-step commands (CLI pod manifest with the correct Secret name and namespace) are
+  # printed after helm install / upgrade. Show them again with:
+  #   helm get notes <release> -n <ns>
+  #
+  # DB settings are inherited from global.database. Only override
+  # modules.<name>.databaseName here if a module uses a non-default database.
+  # Existing secret (global.database.existingSecret): it needs the six keys CLSSERVICE_CLSSSQLPASSWORD,
+  # CLSDESIGNER_SQLPASSWORD, OLCLS_OLSQLPASSWORD, EXTRSERVICE_EXTRSSQLPASSWORD,
+  # EXTRDESIGNER_SQLPASSWORD, OLEXTR_OLSQLPASSWORD in addition to 'database-password'.

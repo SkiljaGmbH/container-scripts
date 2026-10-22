@@ -1,0 +1,16 @@
+apiVersion: v2
+name: site-management-tool
+description: >
+  Helm chart for the Skilja Tegra Site Management Tool - an interactive CLI
+  used for admin tasks (license managers, organization admins,
+  organizations). This chart only manages the aggregated database connection
+  Secret consumed by the tool; the tool itself is run ad-hoc.
+type: application
+version: 0.1.1
+appVersion: "8.0"
+keywords:
+  - Skilja
+  - SiteManagement
+  - Admin
+maintainers:
+  - name: Skilja Team

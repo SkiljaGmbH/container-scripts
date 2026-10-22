@@ -1,0 +1,85 @@
+# Default values for site-management-tool.
+# This chart does NOT deploy a running workload - the Site Management Tool is an
+# interactive CLI used for admin tasks. This chart only manages the aggregated
+# database-connection Secret the tool consumes; the CLI pod is started ad-hoc.
+#
+# Two ways to deploy (see prerequisites.md):
+#   - Inside the Laera umbrella (site-management-tool.enabled: true, default): global.database
+#     comes from the umbrella, the umbrella's NOTES print the CLI pod commands after install.
+#   - Standalone: fill in the global block below yourself (same DB as the modules).
+
+global:
+  database:
+    server: "my-db-cluster-rw.acme"
+    user: "myDBuser"
+    password: "ChangeME!"       # placeholder - goes into Secret, never set for real use
+    existingSecret: ""          # takes precedence over 'password' if set. See README for required key names.
+    serverType: 2               # 0=MSSQL, 1=Oracle, 2=Postgres
+    useIntegratedSecurity: "false"
+
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: skilja/sitemanagement
+  tag: "8.0"
+
+# -----------------------------------------------------------------------------
+# Per-module database settings. Every module needs its own `databaseName` (they
+# are separate databases), but server/user/serverType/useIntegratedSecurity are
+# shared across all of them by default via `global.database.*`.
+# Leave a field as "" to inherit the corresponding global.database.* value;
+# set it explicitly to override it just for that one module (e.g. if a module's
+# database really lives on a different server).
+# -----------------------------------------------------------------------------
+modules:
+  classificationService:     
+    databaseName: "ClassificationService"
+    server: ""
+    user: ""
+    serverType: ""
+    useIntegratedSecurity: ""
+
+  classificationDesigner:     
+    databaseName: "ClassificationProjects"
+    server: ""
+    user: ""
+    serverType: ""
+    useIntegratedSecurity: ""
+    useSSL: "false"
+    trustCertificate: "false"
+
+  classificationMonitor:      
+    databaseName: "OLClassification"
+    server: ""
+    user: ""
+    serverType: ""
+    useIntegratedSecurity: ""
+    useSSL: "false"
+    trustCertificate: "false"
+
+  extractionService:          
+    databaseName: "ExtractionService"
+    server: ""
+    user: ""
+    serverType: ""
+    useIntegratedSecurity: ""
+
+  extractionDesigner:        
+    databaseName: "ExtractionProjects"
+    server: ""
+    user: ""
+    serverType: ""
+    useIntegratedSecurity: ""
+    useSSL: "false"
+    trustCertificate: "false"
+
+  extractionMonitor:         
+    databaseName: "OLExtraction"
+    server: ""
+    user: ""
+    serverType: ""
+    useIntegratedSecurity: ""
+    useSSL: "false"
+    trustCertificate: "false"
