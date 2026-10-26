@@ -1,0 +1,52 @@
+# Publishes all charts (charts/* and umbrellas/*) as OCI artifacts to GitHub Container Registry:
+#   oci://ghcr.io/<owner>/charts/<chart-name>
+# A chart version is only pushed if it does not exist yet, so bump "version" in Chart.yaml to release.
+name: Release Helm charts (OCI)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - "umbrellas/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Package and push new chart versions
+        run: |
+          set -euo pipefail
+          # OCI paths must be lowercase
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          target="oci://ghcr.io/${owner}/charts"
+          mkdir -p dist
+
+          # Subcharts first, then umbrellas (they embed the packaged subcharts via file:// dependencies)
+          for dir in charts/*/ umbrellas/*/; do
+            [ -f "${dir}Chart.yaml" ] || continue
+            name=$(helm show chart "$dir" | awk '/^name:/{print $2}')
+            version=$(helm show chart "$dir" | awk '/^version:/{print $2}')
+
+            if helm show chart "${target}/${name}" --version "$version" >/dev/null 2>&1; then
+              echo "skip ${name} ${version}: already published"
+              continue
+            fi
+
+            helm dependency update "$dir"
+            helm package "$dir" --destination dist
+            helm push "dist/${name}-${version}.tgz" "$target"
+            echo "pushed ${target}/${name}:${version}"
+          done
