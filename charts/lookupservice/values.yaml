@@ -46,7 +46,7 @@ replicaCount: 1  # >1 only with a shared ReadWriteMany volume for programData, s
 image:
   repository: skilja/lookupservice
   pullPolicy: IfNotPresent
-  tag: "6.2"  # always use patch versions like "x.x.x" for production. Floating versions like "x.x" can be rebased for security updates.
+  tag: "6.3.0"  # always use patch versions like "x.x.x" for production. Floating versions like "x.x" can be rebased for security updates.
   pullSecrets: []
     # - name: my-registry-secret
 

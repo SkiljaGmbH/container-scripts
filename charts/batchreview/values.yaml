@@ -38,7 +38,7 @@ replicaCount: 1  # stateless static frontend, can be scaled freely
 image:
   repository: skilja/vinna_batchreview
   pullPolicy: IfNotPresent
-  tag: "5.2.0"  # always use patch versions like "x.x.x" for production
+  tag: "5.3.0"  # always use patch versions like "x.x.x" for production
   pullSecrets: []
     # - name: my-registry-secret
 

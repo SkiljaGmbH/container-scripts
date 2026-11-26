@@ -50,7 +50,7 @@ spec:
     kubernetes.io/arch: amd64
   containers:
     - name: site-management-tool
-      image: {{ dig "image" "repository" "skilja/sitemanagement" $smt }}:{{ dig "image" "tag" "8.0" $smt }}
+      image: {{ dig "image" "repository" "skilja/sitemanagement" $smt }}:{{ dig "image" "tag" "8.0.2.41870" $smt }}
       stdin: true
       tty: true
       env:

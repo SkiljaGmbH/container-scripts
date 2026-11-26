@@ -6,8 +6,8 @@ description: >
   organizations). This chart only manages the aggregated database connection
   Secret consumed by the tool; the tool itself is run ad-hoc.
 type: application
-version: 0.1.1
-appVersion: "8.0"
+version: 0.2.0
+appVersion: "8.0.2.41870"
 keywords:
   - Skilja
   - SiteManagement

@@ -23,7 +23,7 @@ fullnameOverride: ""
 
 image:
   repository: skilja/sitemanagement
-  tag: "8.0"
+  tag: "8.0.2.41870"
 
 # -----------------------------------------------------------------------------
 # Per-module database settings. Every module needs its own `databaseName` (they

@@ -48,7 +48,7 @@ image:
   pullPolicy: IfNotPresent
   # Base tag only, WITHOUT the "-llm-cuda" suffix. If gpu.enabled is true, "-llm-cuda"
   # is appended automatically by the deployment template (e.g. "8.0" -> "8.0-llm-cuda").
-  tag: "8.0"
+  tag: "8.0.2.41825"
   pullSecrets: []
     # - my-registry-secret
 

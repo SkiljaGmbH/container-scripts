@@ -2,5 +2,5 @@ apiVersion: v2
 name: aiserver
 description: AI Server Helm Chart
 type: application
-version: 1.5.0
-appVersion: "8.0"
+version: 1.6.0
+appVersion: "8.0.3.43053"

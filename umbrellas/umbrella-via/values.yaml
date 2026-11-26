@@ -42,7 +42,7 @@ global:
 batchreview:
   enabled: true
   image:
-    tag: "5.2.0"
+    tag: "5.3.0"
   # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from batchreview.env.pathBase.
   ingress:
     hosts:
@@ -68,7 +68,7 @@ batchreview:
 fieldreview:
   enabled: true                              # requires validationservice
   image:
-    tag: "4.2.0"
+    tag: "4.3.0"
   # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from fieldreview.env.pathBase.
   ingress:
     hosts:
@@ -94,7 +94,7 @@ fieldreview:
 validationservice:
   enabled: true
   image:
-    tag: "6.2.0"
+    tag: "6.3.0"
     # repository: myregistry.azurecr.io/skilja/validationservice   # private registry, then also set pullSecrets
     # pullSecrets:
     #   - name: my-acr-secret
@@ -128,7 +128,7 @@ validationservice:
 lookupservice:
   enabled: true
   image:
-    tag: "6.2"
+    tag: "6.3.0"
   # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from lookupservice.config.pathBase.
   ingress:
     hosts:
