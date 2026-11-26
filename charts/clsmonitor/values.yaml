@@ -43,7 +43,7 @@ image:
   # is appended automatically by the deployment template (e.g. "8.0" -> "8.0-llm-cuda").
   #   "8.0"           -> standard build (~1.2GB)
   #   "8.0-llm-cuda"  -> GPU/CUDA build (~5.5GB), auto-selected when gpu.enabled: true
-  tag: "8.0"
+  tag: "8.0.2.41144"
   pullSecrets: []
     # - my-registry-secret
 

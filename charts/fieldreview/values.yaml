@@ -39,7 +39,7 @@ replicaCount: 1  # stateless static frontend, can be scaled freely
 image:
   repository: skilja/vinna_fieldreview
   pullPolicy: IfNotPresent
-  tag: "4.2.0"  # always use patch versions like "x.x.x" for production
+  tag: "4.3.0"  # always use patch versions like "x.x.x" for production
   pullSecrets: []
     # - name: my-registry-secret
 

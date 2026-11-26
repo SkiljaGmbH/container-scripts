@@ -2,8 +2,8 @@ apiVersion: v2
 name: extraction-designer
 description: Helm chart for Extraction Designer
 type: application
-version: 0.2.0
-appVersion: "8.0"
+version: 0.3.0
+appVersion: "8.0.2.41825"
 keywords:
   - Extraction
   - Skilja

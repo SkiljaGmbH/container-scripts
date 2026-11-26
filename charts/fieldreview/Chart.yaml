@@ -5,8 +5,8 @@ description: >
   nginx-hosted web frontend, configured via services.config.json.
   Requires the Vinna runtime and the Validation Service.
 type: application
-version: 1.2.1
-appVersion: "4.2.0"
+version: 1.3.0
+appVersion: "4.3.0"
 keywords:
   - Vinna
   - Skilja

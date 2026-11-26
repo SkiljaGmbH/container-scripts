@@ -37,7 +37,7 @@ global:
 aiserver:
   enabled: false
   image:
-    tag: "8.0"
+    tag: "8.0.3.43053"
   # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from aiserver.config.pathbase.
   ingress:
     hosts:
@@ -76,7 +76,7 @@ aiserver:
 classification-designer:
   enabled: true
   image:
-    tag: "8.0"
+    tag: "8.0.2.41144"
   # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from classification-designer.env.pathBase.
   ingress:
     hosts:
@@ -110,7 +110,7 @@ classification-designer:
 classification-monitor:
   enabled: false
   image:
-    tag: "8.0"
+    tag: "8.0.2.41144"
   # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from classification-monitor.env.pathBase.
   ingress:
     hosts:
@@ -147,7 +147,7 @@ classification-monitor:
 extraction-designer:
   enabled: false
   image:
-    tag: "8.0"
+    tag: "8.0.2.41825"
   # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from extraction-designer.env.pathBase.
   ingress:
     hosts:
@@ -184,7 +184,7 @@ extraction-designer:
 extraction-monitor:
   enabled: false
   image:
-    tag: "8.0"
+    tag: "8.0.2.41825"
   # Ingress mode only, ignored if global.gateway.enabled. The HTTPRoute path then comes from extraction-monitor.env.pathBase.
   ingress:
     hosts:

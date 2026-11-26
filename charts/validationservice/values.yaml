@@ -46,7 +46,7 @@ replicaCount: 1
 image:
   repository: skilja/validationservice
   pullPolicy: IfNotPresent
-  tag: "6.2.0"  # always use patch versions like "x.x.x" for production
+  tag: "6.3.0"  # always use patch versions like "x.x.x" for production
   pullSecrets: []
     # - name: my-registry-secret   # e.g. for a private registry like myregistry.azurecr.io
 

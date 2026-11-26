@@ -44,7 +44,7 @@ fullnameOverride: ""
 # Image Configuration
 image:
   repository:  skilja/aiserver
-  tag: "8.0" # always use patch versions like "x.x.x" for production. Floating verions like "x.x" can be rebased for security updates etc.
+  tag: "8.0.3.43053" # always use patch versions like "x.x.x" for production. Floating verions like "x.x" can be rebased for security updates etc.
   pullPolicy: IfNotPresent 
   pullSecrets: []
  #Example 
