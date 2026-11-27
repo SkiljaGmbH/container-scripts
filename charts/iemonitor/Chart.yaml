@@ -4,7 +4,7 @@ description: >
   Helm chart for Skilja Tegra Online Learning Monitor -
   Extraction Monitor (skilja/extractionmonitor).
 type: application
-version: 0.3.0
+version: 0.3.1
 appVersion: "8.0.2.41825"
 keywords:
   - Extraction

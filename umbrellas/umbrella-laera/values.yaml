@@ -29,6 +29,12 @@ global:
     enabled: false                 # false = Ingress; parentRefs/hostnames are only used if true
     parentRefs: []                 # e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
     hostnames: []                  # e.g. [my.domain.com], the first one is used for the OAuth redirect URIs
+  proxy:
+    # WORKAROUND for classification/extraction designer and monitor (the AI Server handles this itself):
+    # trust X-Forwarded-Proto/-For of the reverse proxy from ANY source (ASPNETCORE_FORWARDEDHEADERS_ENABLED).
+    # Without it the OIDC login callback is redirected to http://. Per component: <component>.proxy.*
+    # Restrict pod access to the Ingress / Gateway with a NetworkPolicy, see prerequisites.md.
+    trustAllForwardedHeaders: true
 
 # ---------------------------------------------------------------
 # 1. AI Server

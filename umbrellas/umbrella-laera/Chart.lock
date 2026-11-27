@@ -4,18 +4,18 @@ dependencies:
   version: 1.6.0
 - name: classification-designer
   repository: file://../../charts/clsdesigner
-  version: 0.3.0
+  version: 0.3.1
 - name: classification-monitor
   repository: file://../../charts/clsmonitor
-  version: 0.3.0
+  version: 0.3.1
 - name: extraction-designer
   repository: file://../../charts/iedesigner
-  version: 0.3.0
+  version: 0.3.1
 - name: extraction-monitor
   repository: file://../../charts/iemonitor
-  version: 0.3.0
+  version: 0.3.1
 - name: site-management-tool
   repository: file://../../charts/sitemanagement
   version: 0.2.0
-digest: sha256:84870a8321f1837d3d3eb9fd3cc7c0a7b7cced4871781d16f921dbf38d911222
-generated: "2026-11-26T15:18:15.687644197Z"
+digest: sha256:9440d092a081ce89e527b62e25378d11a77ea23e46f1337970b1be02c9092365
+generated: "2026-11-27T15:46:00.40682393Z"

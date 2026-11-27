@@ -50,6 +50,11 @@ spec:
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           env:
+            {{- if eq (include "classification-designer.trustAllForwardedHeaders" .) "true" }}
+            # Workaround: trust X-Forwarded-Proto/-For of the reverse proxy (any source), see values proxy.*
+            - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
+              value: "true"
+            {{- end }}
             # Kestrel transport-level upload limit, kept in sync with env.maxRequestBodySize
             - name: ASPNETCORE_Kestrel__Limits__MaxRequestBodySize
               value: {{ .Values.env.maxRequestBodySize | quote }}
