@@ -31,6 +31,10 @@ The document has two parts:
 - Values for a component go under the key of its subchart (for example `aiserver:`). Everything not set
   there falls back to the defaults in the subchart's `values.yaml`. Maps are merged, lists are replaced.
 - The key must match the dependency name (or `alias`) in this chart's `Chart.yaml`.
+- `global.proxy.trustAllForwardedHeaders` (default `true`) is a workaround for the designers and monitors:
+  they trust `X-Forwarded-Proto` of the Ingress / Gateway, otherwise the OIDC login callback is redirected
+  to `http://`. It trusts the header from any source; restrict pod access with a NetworkPolicy. Details:
+  "Reverse proxy and forwarded headers" in the prerequisites.md of each designer / monitor chart.
 - `global.gateway.*` switches all components between Ingress (`enabled: false`, default) and Gateway API
   (`enabled: true`, one HTTPRoute per component, attached to an existing Gateway via `parentRefs`, with
   `hostnames`). The first hostname is used for the OAuth redirect URIs, the route path is the component's

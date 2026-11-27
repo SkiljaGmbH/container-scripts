@@ -60,6 +60,11 @@ spec:
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           env:
+            {{- if eq (include "extraction-monitor.trustAllForwardedHeaders" .) "true" }}
+            # Workaround: trust X-Forwarded-Proto/-For of the reverse proxy (any source), see values proxy.*
+            - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
+              value: "true"
+            {{- end }}
             # Generic ASP.NET Core Kestrel transport limit.
             - name: ASPNETCORE_Kestrel__Limits__MaxRequestBodySize
               value: {{ .Values.env.maxRequestBodySize | quote }}

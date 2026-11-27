@@ -33,6 +33,8 @@ global:
     enabled: false
     parentRefs: []   # e.g. [{ name: shared-gateway, namespace: gateway-infra, sectionName: https }]
     hostnames: []    # e.g. [my.domain.com]
+  proxy:
+    trustAllForwardedHeaders: true   # see proxy.* below
 
 
 nameOverride: ""
@@ -206,6 +208,18 @@ httpRoute:
   hostnames: []      # empty = global.gateway.hostnames. The first one is also used for the OAuth redirect URI
   annotations: {}
   timeouts: {}       # optional rule timeouts, e.g. { request: 600s, backendRequest: 600s }. Needs controller support
+
+
+# Reverse proxy (Ingress / Gateway / load balancer) in front of the app.
+# The proxy terminates TLS and forwards plain HTTP; X-Forwarded-Proto tells the app that the client used HTTPS.
+# Without trusting this header the app builds absolute redirects with http://, which breaks the OIDC login
+# callback (redirect to http://<host><pathBase>/?code=...).
+proxy:
+  # WORKAROUND until the app supports Proxy__KnownProxies / Proxy__KnownNetworks:
+  # sets ASPNETCORE_FORWARDEDHEADERS_ENABLED=true, i.e. X-Forwarded-For / X-Forwarded-Proto are trusted
+  # from ANY source. Restrict pod access to the Ingress / Gateway with a NetworkPolicy (see prerequisites.md).
+  # "" = inherit global.proxy.trustAllForwardedHeaders (default true), true/false = override for this chart
+  trustAllForwardedHeaders: ""
 
 
 # This very much depends on your projects, however this is a good general starting point.

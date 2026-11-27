@@ -228,3 +228,42 @@ httpRoute:
 - Upload size / timeouts: 500 MB, 600 s. Sticky sessions: required if `replicaCount > 1` (SignalR).
   These are controller specific policies, see `umbrellas/README.md`.
 - The OAuth redirect URI uses the first hostname from `httpRoute.hostnames` / `global.gateway.hostnames`.
+
+### Reverse proxy and forwarded headers (workaround)
+
+The Ingress / Gateway terminates TLS and forwards plain HTTP to the pod. The app learns the original scheme
+only from `X-Forwarded-Proto`. Without trusting this header it builds absolute redirects with `http://`, and the
+OIDC login callback fails: `https://<host>/classificationdesigner?code=...` is answered with
+`301 Location: http://<host>/classificationdesigner/?code=...`.
+
+Until the app supports restricting trusted proxies (`Proxy__KnownProxies` / `Proxy__KnownNetworks`), the chart sets
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` by default (`proxy.trustAllForwardedHeaders`, or
+`global.proxy.trustAllForwardedHeaders` in the umbrella). This trusts `X-Forwarded-For` / `X-Forwarded-Proto`
+from **any** source: a workload that reaches the pod directly could fake the client IP or the scheme. Requests
+from outside are not affected, they always pass the proxy. Restrict pod access to the Ingress / Gateway with a
+NetworkPolicy. Example for an Ingress controller running in its own namespace (e.g. ingress-nginx):
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: classification-designer-from-proxy-only
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: classification-designer
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: <namespace-of-your-ingress-or-gateway>
+```
+
+The source of the proxy traffic depends on the controller: with **Cilium Gateway API** it is the Cilium
+`ingress` identity (use a `CiliumNetworkPolicy` with `fromEntities: [ingress]`), with an **AWS ALB**
+(`target-type: ip`) it is the ALB in the VPC (use an `ipBlock` with the VPC CIDR). Test the policy before
+relying on it: a wrong selector makes the app unreachable.
+
+Check (no browser needed): `curl -sI "https://<host>/classificationdesigner?code=x&state=y"` must return a `location:` with
+`https://`.

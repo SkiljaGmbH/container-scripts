@@ -76,3 +76,16 @@ otherwise the first ingress host.
 {{- (index .Values.ingress.hosts 0).host -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Trust X-Forwarded-* headers from any source (ASPNETCORE_FORWARDEDHEADERS_ENABLED).
+Chart value (bool) wins, otherwise global.proxy.trustAllForwardedHeaders, default true.
+*/}}
+{{- define "classification-designer.trustAllForwardedHeaders" -}}
+{{- $local := .Values.proxy.trustAllForwardedHeaders -}}
+{{- if kindIs "bool" $local -}}
+{{- $local -}}
+{{- else -}}
+{{- dig "proxy" "trustAllForwardedHeaders" true (.Values.global | default dict) -}}
+{{- end -}}
+{{- end }}
